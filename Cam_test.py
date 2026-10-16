@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from math import isfinite
@@ -159,7 +160,7 @@ class CamTestController:
             return rgb, camera_status, light_status, stats
 
     def save_image(self, name: str = "") -> tuple:
-        """Save one fresh camera RGB snapshot at native resolution, without overlays."""
+        """Save Color and Mono PNGs from one fresh, unannotated RGB snapshot."""
         try:
             stem = capture_name_stem(name)
         except ValueError as error:
@@ -172,38 +173,50 @@ class CamTestController:
                 return gr.update(value=None, visible=False), "이미지 저장 실패: 최근 수신된 카메라 프레임이 없습니다."
             snapshot = frame.copy()
             captured_at = datetime.now(CAPTURE_TIMEZONE)
-        path = None
-        created = False
+        created_paths = []
         try:
             if snapshot.dtype != np.uint8 or snapshot.ndim != 3 or snapshot.shape[2] != 3 or not snapshot.size:
                 raise ValueError("저장할 프레임은 uint8 RGB 영상이어야 합니다.")
             # PNG encoding and disk I/O must not hold up the live preview.
-            ok, encoded = cv2.imencode(".png", cv2.cvtColor(snapshot, cv2.COLOR_RGB2BGR))
-            if not ok:
-                raise OSError("PNG 인코딩에 실패했습니다.")
+            encoded_images = []
+            for label, conversion in (("Color", cv2.COLOR_RGB2BGR), ("Mono", cv2.COLOR_RGB2GRAY)):
+                ok, encoded = cv2.imencode(".png", cv2.cvtColor(snapshot, conversion))
+                if not ok:
+                    raise OSError(f"{label} PNG 인코딩에 실패했습니다.")
+                encoded_images.append(encoded)
             folder = self.capture_dir / captured_at.strftime("%Y-%m-%d")
             folder.mkdir(parents=True, exist_ok=True)
             stem = stem or f"cam_{captured_at:%Y%m%d_%H%M%S_%f}_{uuid4().hex[:12]}"
             suffix = 0
             while True:
-                path = folder / f"{stem}{'_' + str(suffix) if suffix else ''}.png"
-                try:
-                    stream = path.open("xb")
-                    created = True
-                    break
-                except FileExistsError:
-                    suffix += 1
-            with stream:
-                stream.write(encoded.tobytes())
-                stream.flush()
-                os.fsync(stream.fileno())
+                pair_stem = f"{stem}{'_' + str(suffix) if suffix else ''}"
+                paths = [folder / f"{pair_stem}_{label}.png" for label in ("Color", "Mono")]
+                with ExitStack() as stack:
+                    streams = []
+                    try:
+                        for path in paths:
+                            streams.append(stack.enter_context(path.open("xb")))
+                            created_paths.append(path)
+                    except FileExistsError:
+                        stack.close()
+                        for path in created_paths:
+                            path.unlink(missing_ok=True)
+                        created_paths.clear()
+                        suffix += 1
+                        continue
+                    for stream, encoded in zip(streams, encoded_images, strict=True):
+                        stream.write(encoded.tobytes())
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                break
         except (OSError, ValueError, cv2.error) as error:
-            if created:
+            for path in created_paths:
                 path.unlink(missing_ok=True)
             return gr.update(value=None, visible=False), f"이미지 저장 실패: {error}"
         height, width = snapshot.shape[:2]
-        return (gr.update(value=str(path), visible=True),
-                f"✓ 이미지 저장 완료 · **{width} × {height}px · PNG**\n\n`{path}`")
+        return (gr.update(value=[str(path) for path in paths], visible=True),
+                f"✓ Color · Mono 이미지 2장 저장 완료 · **{width} × {height}px · PNG**\n\n"
+                + "\n\n".join(f"**{label}**: `{path}`" for label, path in zip(("Color", "Mono"), paths)))
 
     def extract_roi(self) -> tuple:
         with self._lock:
@@ -392,13 +405,13 @@ def build_ui(controller: CamTestController) -> gr.Blocks:
                 )
                 with gr.Row():
                     capture_name = gr.Textbox(value="", label="이미지 이름", placeholder="예: Case01_시편01",
-                                              info=".png 자동 추가 · 같은 이름은 번호 추가 · 비우면 촬영 시각 사용",
+                                              info="_Color.png / _Mono.png 자동 추가 · 같은 이름은 번호 추가 · 비우면 촬영 시각 사용",
                                               scale=3)
-                    capture_button = gr.Button("현재 프레임 이미지 저장", variant="primary", scale=1)
-                capture_status = gr.Markdown("버튼을 누르면 현재 카메라 프레임을 원본 해상도의 RGB PNG로 저장합니다.",
+                    capture_button = gr.Button("Color · Mono 두 장 저장", variant="primary", scale=1)
+                capture_status = gr.Markdown("버튼을 누르면 같은 카메라 프레임을 원본 해상도의 Color PNG와 흑백 Mono PNG 두 장으로 저장합니다.",
                                               elem_classes="cam-capture-status")
-                capture_file = gr.File(label="저장한 이미지 다운로드", interactive=False,
-                                       file_types=[".png"], visible=False)
+                capture_file = gr.File(label="Color · Mono 이미지 다운로드", interactive=False,
+                                       file_count="multiple", file_types=[".png"], visible=False)
                 exposure = gr.Number(value=controller.settings.exposure_us, minimum=1, step=100, label="카메라 노출 시간 (µs)")
                 with gr.Row():
                     exposure_apply = gr.Button("노출 적용 및 저장", variant="primary")

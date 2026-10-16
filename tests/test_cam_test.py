@@ -238,21 +238,30 @@ class CamTestTests(unittest.TestCase):
             image, _ = self.controller.extract_roi()
         np.testing.assert_array_equal(image, np.where(mask[:, :, None], self.rgb, 0))
 
-    def test_save_image_preserves_native_rgb_and_uses_unique_paths(self):
+    def test_save_image_preserves_color_and_saves_matching_single_channel_mono(self):
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder) / "카메라 저장"
-            rgb = np.arange(36, dtype=np.uint8).reshape(3, 4, 3)
+            rgb = np.tile(np.array([[[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]]],
+                                   dtype=np.uint8), (3, 1, 1))
             self.camera.get_latest_frame.return_value = rgb
             first, message = self.controller.save_image()
             second, _ = self.controller.save_image()
-            path = Path(first["value"])
+            color_path, mono_path = map(Path, first["value"])
             self.assertTrue(first["visible"])
-            self.assertTrue(path.is_file())
-            self.assertNotEqual(first["value"], second["value"])
+            self.assertTrue(color_path.is_file())
+            self.assertTrue(mono_path.is_file())
+            self.assertEqual(len(first["value"]), 2)
+            self.assertTrue(set(first["value"]).isdisjoint(second["value"]))
+            self.assertEqual(color_path.name.removesuffix("_Color.png"),
+                             mono_path.name.removesuffix("_Mono.png"))
             self.assertIn("4 × 3px", message)
-            self.assertIn("저장 완료", message)
-            saved = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
-            np.testing.assert_array_equal(cv2.cvtColor(saved, cv2.COLOR_BGR2RGB), rgb)
+            self.assertIn("2장 저장 완료", message)
+            color = cv2.imdecode(np.frombuffer(color_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+            mono = cv2.imdecode(np.frombuffer(mono_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+            np.testing.assert_array_equal(cv2.cvtColor(color, cv2.COLOR_BGR2RGB), rgb)
+            np.testing.assert_array_equal(mono, np.tile(np.array([76, 150, 29, 255], np.uint8), (3, 1)))
+            self.assertEqual(mono.dtype, np.uint8)
+            self.assertEqual(self.camera.get_latest_frame.call_count, 2)
         self.light.send.assert_not_called()
         self.camera.start.assert_not_called()
         self.camera.set_exposure_us.assert_not_called()
@@ -275,17 +284,35 @@ class CamTestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder) / "이미지 저장"
             first, _ = self.controller.save_image("Case01_시편01")
-            path = Path(first["value"])
-            original_bytes = path.read_bytes()
+            paths = list(map(Path, first["value"]))
+            original_bytes = [path.read_bytes() for path in paths]
             self.camera.get_latest_frame.return_value[:] = 0
             second, _ = self.controller.save_image("Case01_시편01.png")
             third, _ = self.controller.save_image("Case01_시편01.PNG")
-            self.assertEqual(path.name, "Case01_시편01.png")
-            self.assertEqual(Path(second["value"]).name, "Case01_시편01_1.png")
-            self.assertEqual(Path(third["value"]).name, "Case01_시편01_2.png")
-            self.assertEqual(path.read_bytes(), original_bytes)
-            saved = cv2.imdecode(np.frombuffer(Path(second["value"]).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
-            self.assertTrue((saved == 0).all())
+            self.assertEqual([path.name for path in paths],
+                             ["Case01_시편01_Color.png", "Case01_시편01_Mono.png"])
+            self.assertEqual([Path(path).name for path in second["value"]],
+                             ["Case01_시편01_1_Color.png", "Case01_시편01_1_Mono.png"])
+            self.assertEqual([Path(path).name for path in third["value"]],
+                             ["Case01_시편01_2_Color.png", "Case01_시편01_2_Mono.png"])
+            self.assertEqual([path.read_bytes() for path in paths], original_bytes)
+            for path in second["value"]:
+                saved = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+                self.assertTrue((saved == 0).all())
+
+    def test_existing_mono_file_reserves_the_name_for_both_images(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.controller.capture_dir = Path(folder)
+            first, _ = self.controller.save_image("시편")
+            color_path, mono_path = map(Path, first["value"])
+            original_mono = mono_path.read_bytes()
+            color_path.unlink()
+            second, _ = self.controller.save_image("시편")
+            self.assertEqual([Path(path).name for path in second["value"]],
+                             ["시편_1_Color.png", "시편_1_Mono.png"])
+            self.assertFalse(color_path.exists())
+            self.assertEqual(mono_path.read_bytes(), original_mono)
+            self.assertTrue(all(Path(path).is_file() for path in second["value"]))
 
     def test_named_image_rejects_paths_and_invalid_windows_names(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -300,14 +327,30 @@ class CamTestTests(unittest.TestCase):
             self.assertFalse(self.controller.capture_dir.exists())
 
     def test_save_failure_removes_partial_image_and_does_not_offer_old_file(self):
+        for completed_files in (0, 1):
+            with self.subTest(completed_files=completed_files), tempfile.TemporaryDirectory() as folder:
+                self.controller.capture_dir = Path(folder)
+                with patch("Cam_test.os.fsync", side_effect=[None] * completed_files + [OSError("disk full")]):
+                    download, message = self.controller.save_image()
+                self.assertIsNone(download["value"])
+                self.assertFalse(download["visible"])
+                self.assertIn("disk full", message)
+                self.assertEqual(list(Path(folder).rglob("*.png")), [])
+
+    def test_mono_encoding_failure_does_not_save_color_alone(self):
+        encoder = cv2.imencode
+
+        def fail_mono(extension, image):
+            return (False, None) if image.ndim == 2 else encoder(extension, image)
+
         with tempfile.TemporaryDirectory() as folder:
-            self.controller.capture_dir = Path(folder)
-            with patch("Cam_test.os.fsync", side_effect=OSError("disk full")):
-                download, message = self.controller.save_image()
+            self.controller.capture_dir = Path(folder) / "captures"
+            with patch("Cam_test.cv2.imencode", side_effect=fail_mono):
+                download, message = self.controller.save_image("시편")
             self.assertIsNone(download["value"])
             self.assertFalse(download["visible"])
-            self.assertIn("disk full", message)
-            self.assertEqual(list(Path(folder).rglob("*.png")), [])
+            self.assertIn("Mono PNG", message)
+            self.assertFalse(self.controller.capture_dir.exists())
 
     def test_image_save_does_not_block_preview_or_change_snapshot_pixels(self):
         started, release = Event(), Event()
@@ -332,8 +375,11 @@ class CamTestTests(unittest.TestCase):
                 finally:
                     release.set()
                 download, _ = saving.result(timeout=2)
-            saved = cv2.imdecode(np.frombuffer(Path(download["value"]).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
-            np.testing.assert_array_equal(cv2.cvtColor(saved, cv2.COLOR_BGR2RGB), original)
+            color_path, mono_path = map(Path, download["value"])
+            color = cv2.imdecode(np.frombuffer(color_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+            mono = cv2.imdecode(np.frombuffer(mono_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+            np.testing.assert_array_equal(cv2.cvtColor(color, cv2.COLOR_BGR2RGB), original)
+            np.testing.assert_array_equal(mono, np.full((3, 4), 100, np.uint8))
 
     def test_save_button_is_connected_to_snapshot_callback(self):
         with patch("Cam_test.list_ports.comports", return_value=[]):
@@ -343,6 +389,7 @@ class CamTestTests(unittest.TestCase):
         self.assertEqual(len(callbacks["save_image"].inputs), 1)
         self.assertEqual(callbacks["save_image"].inputs[0].label, "이미지 이름")
         self.assertEqual(len(callbacks["save_image"].outputs), 2)
+        self.assertEqual(callbacks["save_image"].outputs[0].file_count, "multiple")
 
     def test_shutdown_releases_both_devices(self):
         self.camera.stop.side_effect = RuntimeError("camera cleanup failed")
