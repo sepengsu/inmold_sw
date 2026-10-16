@@ -1,0 +1,16 @@
+.cam-light-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px !important; }
+.cam-light-card { min-width: 0 !important; padding: 14px !important; border: 1px solid var(--border-color-primary); border-top: 3px solid #0ea5e9; border-radius: 10px; background: var(--block-background-fill); }
+.cam-light-header { display: flex; flex-direction: column; gap: 5px; }
+.cam-light-header span { font-size: 10px; color: var(--body-text-color-subdued); letter-spacing: 1px; }
+.cam-light-header strong { font-size: 14px; color: var(--body-text-color); }
+.cam-light-header code { font-size: 11px; color: #0284c7; }
+.cam-light-header small { font-size: 11px; color: var(--body-text-color-subdued); }
+.cam-light-receipt { min-height: 36px; }
+.cam-light-receipt p { font-size: 11px; }
+.cam-light-config-status p { font-size: 11px; overflow-wrap: anywhere; }
+.cam-capture-status p { font-size: 12px; overflow-wrap: anywhere; }
+.brightness-value { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.brightness-value span { color: var(--body-text-color-subdued); font-size: 11px; }
+.brightness-value strong { color: #0284c7; font: 700 26px/1.2 Consolas, monospace; }
+.roi-config-help p, .roi-config-status p { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .cam-light-grid { grid-template-columns: minmax(0, 1fr); } }

@@ -1,0 +1,71 @@
+# Distances are native source pixels. These are uncalibrated starting values.
+preprocess:
+  gaussian_sigma: 1.0
+  illumination_normalization: true
+  illumination_sigma: 40.0
+  clahe: false
+gabor:
+  kernel_size: 31
+  # Calibrated on one native 2046x2046 camera sample; verify on more live frames.
+  sigma: 3.5
+  wavelength: 12.0
+  gamma: 0.6
+  orientations: 8
+  envelope_size: 9
+candidate:
+  x_bin_width: 48
+  aggregation: median
+  smooth_size: 9
+  top_k: 5
+  bottom_k: 5
+  min_score: 0.08
+  min_contrast: 0.025
+  peak_distance: 20
+  gap: 15
+  window: 60
+  std_weight: 0.20
+  weights: [0.35, 0.20, 0.35, 0.10]
+  alternative_penalty: 0.30
+  alternative_radius: 30
+pair:
+  min_height_ratio: 0.30
+  max_height_ratio: 0.60
+  expected_height_ratio: 0.45
+  weights: [0.70, 0.10, 0.10, 0.10]
+dp:
+  lambda_position: 8.0
+  lambda_height: 4.0
+  lambda_slope: 12.0
+ransac:
+  thresholds: [12.0, 18.0, 24.0]
+recovery:
+  search_margin: 100
+quality:
+  # UI presets change the score and linked quality gates together.
+  min_score: 0.25
+  min_inlier_ratio: 0.35
+  min_x_coverage: 0.40
+  min_third_support: 0
+  max_gap_ratio: 0.60
+  max_rmse_px: 14.0
+  max_median_residual_px: 14.0
+  max_tilt_deg: 25.0
+  max_angle_diff_deg: 6.0
+  max_height_variation_px: 200.0
+  ambiguity_score_gap: 0.01
+  ambiguity_boundary_gap_px: 50.0
+  min_consensus_ratio: 0.35
+  consensus_distance_px: 30.0
+  weights: [0.40, 0.20, 0.15, 0.15, 0.10]
+outside:
+  gap: 15
+  window: 65
+  ratio_threshold: 0.80
+  min_energy: 0.12
+  min_inside_energy: 0.08
+  min_bin_fraction: 0.20
+  min_adjacent_bins: 3
+  min_valid_fraction: 0.80
+mask:
+  margin_top: 10
+  margin_bottom: 10

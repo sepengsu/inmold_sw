@@ -1,0 +1,26 @@
+[project]
+name = "molding-sw"
+version = "0.1.0"
+description = "Grayscale image preprocessing, segmentation, and postprocessing"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.0,<3",
+    "opencv-python-headless>=4.10,<6",
+    "pyserial>=3.5",
+    "pyyaml>=6.0.3",
+    "scipy>=1.15,<2",
+    "scikit-image>=0.25,<0.27",
+]
+
+[project.optional-dependencies]
+model = ["torch==2.9.1"]
+gui = ["gradio==6.29.1", "pypylon>=4.1,<5"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

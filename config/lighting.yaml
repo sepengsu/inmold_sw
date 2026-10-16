@@ -1,0 +1,12 @@
+# 본 UI와 Cam_test가 공유하는 조명 설정 (%)
+# 불러오기·저장은 장치에 전송하지 않습니다. 적용 버튼으로 전송하세요.
+# left_lower_panel: 왼쪽 아래 면조명 (CH1 + CH2)
+# left_upper_bar: 왼쪽 위 바 조명 (CH3)
+# right_upper_bar: 오른쪽 위 바 조명 (CH4)
+# right_upper_panel: 오른쪽 위 면조명 (CH5 + CH6)
+version: 1
+brightness_percent:
+  left_lower_panel: 0
+  left_upper_bar: 0
+  right_upper_bar: 0
+  right_upper_panel: 0

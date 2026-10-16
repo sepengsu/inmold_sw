@@ -1,0 +1,26 @@
+# Fixed rectangle used only when auto_roi.enabled is false.
+roi:
+  x: 0
+  y: 0
+  width: 2000
+  height: 1200
+
+auto_roi:
+  enabled: true
+  boundary_config: roi_gabor_boundary.yaml
+
+clahe:
+  enabled: true
+  clip_limit: 2.0
+  tile_grid_size: [8, 8]
+
+tiling:
+  patch_size: 256
+  stride: 128
+
+output:
+  root_dir: ../data
+  save_roi: false
+  save_clahe: false
+  save_tiles: false
+  save_metadata: false
