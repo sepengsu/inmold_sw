@@ -1,4 +1,4 @@
-# molding_sw
+# inmold_sw
 
 ## 장비 연결 정보 — 2026-10-16 확인
 
@@ -27,7 +27,7 @@
 
 | 촬영 항목 | 프로그램 기본 설정 |
 | --- | --- |
-| 픽셀 형식 | UI에서 `GrayScale (Mono8)` 또는 `RGB Color (BayerGR12)` 선택. 검사 입력은 두 형식 모두 RGB 배열로 전달 |
+| 픽셀 형식 | 현재 `config/camera.yaml`은 `Mono8`. UI에서 `GrayScale (Mono8)` 또는 `RGB Color (BayerGR12)` 선택 가능. 검사 입력은 두 형식 모두 RGB 배열로 전달 |
 | 해상도 | 카메라 최대 해상도 사용. 최근 실제 촬영 검증: `2046 × 2046` |
 | 노출 | `config/camera.yaml`의 `exposure_us: 200000` (`200 ms`), 자동 노출 끔 |
 | 게인 | `0`, 자동 게인 끔 |
@@ -59,8 +59,8 @@ Windows에서 `COM1`~`COM6`이 조회됐으며, 이 프로그램은 위의 `COM3
 기본 카메라는 S/N `24346077`, 라이트는 `COM3` / `9600 bps`입니다.
 
 ```powershell
-cd C:\Users\user\Desktop\sw\molding_sw
-.\.tools\uv\uv.exe run --no-sync --extra gui python Cam_test.py
+cd D:\Code\inmold_sw
+.\.venv\Scripts\python.exe Cam_test.py
 ```
 
 실행하면 [Cam_test](http://127.0.0.1:7860/)가 열리고 최신 카메라 영상을 약 0.2초마다 갱신합니다.
@@ -70,9 +70,9 @@ cd C:\Users\user\Desktop\sw\molding_sw
 기존 `main.py` 검사 서버가 실행 중이면 먼저 종료해서 카메라·COM3·웹 포트를 해제하세요.
 
 - **카메라 연결 / 게인·FPS 설정**: 카메라 일련번호, 게인, 촬영 FPS를 변경하고 재연결합니다. 노출은 마지막으로 적용한 값을 유지합니다.
-- **카메라 노출 시간 (µs)**: 기본 `10000 µs`(10 ms)입니다. **노출 적용 및 저장**을 누르면 실제 센서 노출을 변경하고 공통 `config/camera.yaml`에 저장합니다. 연결 중에는 재연결 없이 적용하며, 연결 해제 상태에서는 다음 연결에 사용합니다. 미리보기와 ROI 결과는 별도 밝기 배율 없이 카메라 영상을 표시합니다.
+- **카메라 노출 시간 (µs)**: 현재 저장값은 `200000 µs`(200 ms)입니다. **노출 적용 및 저장**을 누르면 실제 센서 노출을 변경하고 공통 `config/camera.yaml`에 저장합니다. 연결 중에는 재연결 없이 적용하며, 연결 해제 상태에서는 다음 연결에 사용합니다. 미리보기와 ROI 결과는 별도 밝기 배율 없이 카메라 영상을 표시합니다.
 - **현재 프레임에서 ROI 추출**: 원본 프레임의 직물 상·하단 경계를 검출하고 ROI 영상·품질 상태를 표시합니다. 추출 중에도 실시간 영상은 갱신됩니다.
-- **Color · Mono 두 장 저장**: **이미지 이름**을 입력하고 버튼을 누르면 같은 최신 카메라 프레임에서 원본 해상도의 Color PNG(uint8 RGB)와 Mono PNG(uint8 흑백)를 함께 저장합니다. Mono는 Color 프레임을 그레이스케일로 변환한 영상입니다. 예를 들어 `Case01_시편01`은 `data/cam_test/YYYY-MM-DD/Case01_시편01_Color.png`와 `Case01_시편01_Mono.png`로 저장합니다. 입력한 이름 끝의 `.png`는 한 번 제거한 뒤 Color·Mono 접미사를 붙입니다. 둘 중 하나라도 같은 이름이 있으면 두 파일 모두 같은 번호를 붙여(`Case01_시편01_1_Color.png`, `Case01_시편01_1_Mono.png`) 기존 파일을 보존합니다. 이름을 비우면 `cam_<촬영 시각>_<고유값>`을 공통 이름으로 사용합니다. 경로나 Windows에서 사용할 수 없는 파일 이름은 오류로 안내합니다. 화면의 **Color · Mono 이미지 다운로드**에서 두 파일을 각각 받을 수 있습니다. ROI 경계나 마스킹은 저장하지 않으며, 저장 중에도 실시간 프리뷰는 갱신됩니다. 한 파일이라도 저장에 실패하면 이번에 생성한 두 파일을 정리합니다. 연결이 끊겼거나 최근 2초 이내 프레임이 없으면 저장하지 않습니다. `--capture-dir <폴더>`로 저장 위치를 바꿀 수 있으며 기본 저장 폴더는 Git에서 제외합니다.
+- **Color · Mono 두 장 저장**: **이미지 이름**을 입력하고 버튼을 누르면 같은 최신 카메라 프레임에서 원본 해상도의 Color PNG(uint8 RGB)와 Mono PNG(uint8 흑백)를 함께 저장합니다. Mono는 RGB 프레임을 그레이스케일로 변환한 영상입니다. 카메라가 `Mono8`로 촬영 중이면 Color PNG도 세 채널 값이 같은 흑백 영상입니다. 예를 들어 `Case01_시편01`은 `data/cam_test/YYYY-MM-DD/Case01_시편01_Color.png`와 `Case01_시편01_Mono.png`로 저장합니다. 입력한 이름 끝의 `.png`는 한 번 제거한 뒤 Color·Mono 접미사를 붙입니다. 둘 중 하나라도 같은 이름이 있으면 두 파일 모두 같은 번호를 붙여(`Case01_시편01_1_Color.png`, `Case01_시편01_1_Mono.png`) 기존 파일을 보존합니다. 이름을 비우면 `cam_<촬영 시각>_<고유값>`을 공통 이름으로 사용합니다. 경로나 Windows에서 사용할 수 없는 파일 이름은 오류로 안내합니다. 화면의 **Color · Mono 이미지 다운로드**에서 두 파일을 각각 받을 수 있습니다. ROI 경계나 마스킹은 저장하지 않으며, 저장 중에도 실시간 프리뷰는 갱신됩니다. 한 파일이라도 저장에 실패하면 이번에 생성한 두 파일을 정리합니다. 연결이 끊겼거나 최근 2초 이내 프레임이 없으면 저장하지 않습니다. `--capture-dir <폴더>`로 저장 위치를 바꿀 수 있으며 기본 저장 폴더는 Git에서 제외합니다.
 - **실시간 화면에 최근 ROI 경계 표시**: 마지막 추출 경계를 겹쳐 표시합니다. 초록색은 품질 통과, 주황색은 검토 필요입니다. ROI 결과 영상은 추출 시점의 정지 영상입니다.
 - **RS232 연결**: 포트와 전송 속도를 선택해 연결합니다. 연결만으로 밝기 명령을 보내지 않습니다.
 - **이 조명 적용 / 4개 조명 적용**: 본 UI와 같은 네 조명 그룹을 제어합니다. 왼쪽 아래 면조명 CH1+CH2, 왼쪽 위 바 조명 CH3, 오른쪽 위 바 조명 CH4, 오른쪽 위 면조명 CH5+CH6입니다. 면조명은 두 채널에 같은 밝기를 전송하고 두 ACK를 모두 확인해야 적용 완료로 표시합니다.
@@ -83,16 +83,19 @@ cd C:\Users\user\Desktop\sw\molding_sw
 카메라·포트·웹 주소는 `--camera-serial`, `--light-port`, `--baudrate`, `--host`, `--port`로 지정할 수 있습니다.
 ROI 경계 설정은 `--roi-config config/roi_gabor_boundary.yaml`로 지정합니다.
 
-### 공통 카메라 기본 노출
+### 공통 카메라 설정
 
 본 검사 UI와 Cam_test는 시작할 때 [config/camera.yaml](config/camera.yaml)을 읽습니다.
-기본 파일은 다음과 같으며, 기존 코드 기본값인 10 ms를 유지합니다.
+현재 저장된 값은 다음과 같습니다. UI에서 값을 저장하면 파일 내용도 바뀝니다.
 
 ```yaml
-exposure_us: 10000
+exposure_us: 200000
+pixel_format: Mono8
 ```
 
 `exposure_us`는 센서가 빛을 받는 시간이며 단위는 µs(마이크로초)입니다.
+`pixel_format`은 `Mono8` 또는 `BayerGR12`를 지정합니다. 카메라 제어 클래스의
+파일 없는 기본값은 10 ms·`BayerGR12`이지만, 두 UI는 위 설정 파일을 읽어 시작합니다.
 카메라 연결 시 자동 노출을 끄고 이 값을 설정합니다. 기기가 지원하는 범위로 제한될 수 있습니다.
 Cam_test에서 **노출 적용 및 저장**을 누르면 실제 적용된 노출값을 파일에 저장합니다.
 기기가 요청값을 지원 범위로 조정하면 조정된 값을 입력란과 config에 반영합니다.
@@ -145,7 +148,7 @@ Gabor 필터와 검증 단계를 조정한 값입니다. ROI 검출은 실시간
 ROI 의존성을 포함해 설치하려면 다음 명령을 실행합니다.
 
 ```powershell
-.\.tools\uv\uv.exe sync --extra model --extra gui
+uv sync --extra model --extra gui
 ```
 
 ### RS232_test — 라이트 전용 테스트 UI
@@ -177,17 +180,17 @@ ACK 실패 시 이후 채널 전송을 중단하고 성공한 채널까지 표�
 `--light-port`, `--baudrate`, `--host`, `--port`, `--no-browser` 옵션을 지원합니다.
 이미 같은 웹 주소에서 실행 중이면 기존 화면을 열고 서버를 중복 실행하지 않습니다.
 
-### 기존 검사 GUI 실행
+### 검사 GUI 실행
 
 웹 화면 기본 주소는 **[http://127.0.0.1:7860/](http://127.0.0.1:7860/)** 이고, 웹 서버 포트는 `7860`입니다.
-Python `3.13.11` 가상환경 `.venv`와 프로젝트 안의 `.tools/uv/uv.exe`를 사용합니다.
+프로젝트의 Python 가상환경 `.venv`를 사용합니다.
 모델 추론에는 [Microsoft Visual C++ x64 런타임](https://aka.ms/vc14/vc_redist.x64.exe)도 필요합니다.
 
 ```powershell
-cd C:\Users\user\Desktop\sw\molding_sw
+cd D:\Code\inmold_sw
 $env:LIGHT_SERIAL_PORT = "COM3"
 $env:LIGHT_SERIAL_BAUDRATE = "9600"
-.\.tools\uv\uv.exe run --no-sync --extra model --extra gui python main.py --camera-serial 24346077
+.\.venv\Scripts\python.exe main.py --camera-serial 24346077 --checkpoint model/best_model.pt
 ```
 
 이미 서버가 실행 중이면 해당 화면을 열어 사용합니다. 다시 실행할 때는 기존 서버를 먼저 종료해
@@ -227,38 +230,38 @@ from src.postprocess import (
 config = load_config("config/preprocess.yaml")
 result = preprocess_image("path/to/image.png", config)
 
-model, checkpoint = load_checkpoint("model/best.pt", device="cpu")
+model, checkpoint = load_checkpoint("model/best_model.pt", device="cpu")
 tile_probabilities = predict_tiles(model, result["patches"], batch_size=8)
 roi_probability = merge_probabilities(tile_probabilities, result["metadata"])
-roi_exposure = threshold_mask(roi_probability, checkpoint["threshold"])
-full_exposure = restore_original_mask(roi_exposure, result["metadata"])
-print(impregnation_pct(roi_exposure, result["valid_mask"]))  # 유효 직물 픽셀 기준 함침율 (%)
+roi_detected = threshold_mask(roi_probability, checkpoint["threshold"])
+full_detected = restore_original_mask(roi_detected, result["metadata"])
+print(impregnation_pct(roi_detected, result["valid_mask"]))  # 유효 직물 픽셀 기준 함침율 (%)
 ```
 
-`roi_exposure`와 `full_exposure`는 bool 배열입니다. 마스크 PNG는
-`(full_exposure.astype("uint8") * 255)`로 저장할 수 있습니다.
+`roi_detected`와 `full_detected`는 bool 배열입니다. 마스크 PNG는
+`(full_detected.astype("uint8") * 255)`로 저장할 수 있습니다.
 원본 ROI 밖은 `False`로 채웁니다. ROI 밖을 함침율 계산에 포함하지 마세요.
 
-이 모델의 `True`는 미함침(Exposure) 픽셀입니다. 현재 체크포인트 로더는
+이진 결과의 `True`는 선택한 체크포인트의 검출 대상 픽셀입니다. 현재 체크포인트 로더는
 `architecture=grayscale_unet`(Exposure 1채널)과
 `architecture=grayscale_unet32_3class`(Background/Exposure/Weldline 3채널)를
 지원합니다. 3클래스 모델은 학습 코드의 `predict_binary`와 동일하게
-`P(Exposure) + P(Weldline)`을 합쳐 이진 미함침 영역과 함침율을 계산합니다.
+`P(Exposure) + P(Weldline)`을 합쳐 이진 검출 영역과 함침율을 계산합니다.
 사용한 대상 클래스는 UI 상태·측정 결과·이력 메타데이터에 표시됩니다.
 참고 프로젝트의 benchmark 모델은 대상이 아닙니다.
-`model/best.pt`는 참고 프로젝트의 `unet_current_gt_A_20261009`에서 복사한
-grayscale U-Net 체크포인트입니다. 현재 정답 데이터 검증 Dice는 0.911978이며,
-해당 체크포인트의 임계값은 0.5입니다.
+현재 저장소의 `model/best_model.pt`는 3클래스 체크포인트입니다.
+`main.py`의 기본 체크포인트 경로는 `model/best.pt`이지만 현재 저장소에는
+해당 파일이 없으므로 실행 시 `--checkpoint model/best_model.pt`를 지정하세요.
 
 ## 검사 GUI
 
 루트의 GUI 템플릿을 `src/gui`와 `src/hardware`에 통합했습니다. Basler 카메라에서
 받은 최신 RGB 프레임을 메모리에서 grayscale로 변환한 다음 위 전처리·추론·복원
-흐름에 전달합니다. 미함침 픽셀은 빨간색으로 표시합니다.
+흐름에 전달합니다. 체크포인트가 검출한 대상 픽셀은 빨간색으로 표시합니다.
 
 ```powershell
 uv sync --extra model --extra gui
-uv run --extra model --extra gui python main.py
+uv run --extra model --extra gui python main.py --checkpoint model/best_model.pt
 ```
 
 카메라 드라이버가 없다면 `scripts/setup_basler.ps1 -CheckOnly`로 확인하고,
@@ -278,7 +281,7 @@ ROI가 너무 작거나 한 영역이라도 ROI 밖으로 나가면 오류를 �
 ROI 검출과 CLAHE 설정은 유지하며, GUI 검사에서는 전체 ROI의 슬라이딩 타일을 생성하지 않습니다.
 각 측정 영역을 위·아래 **256×256px 두 장**으로 나눠 **총 6장만 추론**합니다.
 추론 순서는 P1 위·아래 → P2 위·아래 → P3 위·아래이며, 겹침 없이 세로로 복원합니다.
-각 점수는 `100 × (1 − 미함침 픽셀 수 / 131072)`입니다. 전체 영상에는 세 측정 영역의
+각 점수는 `100 × (1 − 검출 대상 픽셀 수 / 131072)`입니다. 전체 영상에는 세 측정 영역의
 예측만 빨간색으로 표시하고, 나머지 영역은 추론하지 않습니다. 대표값은 P1~P3 평균입니다.
 함침율 합격 기준 설정과 PASS/FAIL 판정은 제거했습니다. 모델의 픽셀 분할 임계값은
 체크포인트 값(현재 0.5)을 사용하며, ROI 경계 품질 검증은 유지합니다.
@@ -295,13 +298,14 @@ ROI 검출과 CLAHE 설정은 유지하며, GUI 검사에서는 전체 ROI의 �
 영역이 정확히 3개일 때 왼쪽부터 P1~P3로 지정합니다. 각 연결요소의 최소 회전
 사각형을 구해 기울기를 보정하고, 보정된 크롭 전체를 256×256px로 확대해 한 장씩
 추론합니다. 예측은 보정된 크롭의 원래 픽셀 크기로 되돌려 점수를 계산합니다.
-원본 RGB가 순수 검정 `(0, 0, 0)`인 픽셀은 분자와 분모에서 제외해 Exposure
-픽셀 비율과 함침율을 계산합니다. P1~P3의 유효 픽셀 수는 결과와 이력 메타데이터에
-기록합니다. 전체 결과 영상은 세 회전 사각형 외를 검정으로
-표시하고, P1~P3 개별 결과도
-보여 줍니다. 검출 경계 자체가 불규칙하거나 밝은 픽셀이 회전 사각형 안에 있으면
+원본 RGB가 순수 검정 `(0, 0, 0)`인 픽셀은 분자와 분모에서 제외해 선택한
+모델의 검출 대상 픽셀 비율과 함침율을 계산합니다. P1~P3의 유효 픽셀 수는
+결과와 이력 메타데이터에 기록합니다. 전체 결과 영상은 세 회전 사각형 외를
+검정으로 표시하고, P1~P3 개별 결과도 보여 줍니다. 검출 경계 자체가
+불규칙하거나 밝은 픽셀이 회전 사각형 안에 있으면
 회전 보정 후에도 가장자리가 일부 남을 수 있습니다. 공인인증 평가용 합격·불합격
-판정 기준은 아직 설정되지 않았습니다.
+판정 기준은 아직 설정되지 않았습니다. UI의 **자동 ROI 설정**은 일반 모드의
+Gabor 경계 검증용이며, 공인인증 평가 모드의 어두운 영역 임계값 150은 바꾸지 않습니다.
 
 ### 입력 선택과 실행 설정
 
@@ -314,15 +318,16 @@ ROI 검출과 CLAHE 설정은 유지하며, GUI 검사에서는 전체 ROI의 �
 장비 없이 파일 검사 화면을 실행할 수 있습니다.
 
 ```powershell
-uv run --extra model --extra gui python main.py --no-camera
+uv run --extra model --extra gui python main.py --no-camera --checkpoint model/best_model.pt
 ```
 
 모델·전처리·추론 장치와 카메라는 실행 인자로 지정할 수 있습니다. 기본값은
 프로젝트 루트의 전처리 설정과 체크포인트, CPU, 배치 크기 8입니다.
 
 ```powershell
-uv run --extra model --extra gui python main.py --config config/preprocess.yaml --checkpoint model/best.pt --device cpu --batch-size 8 --camera-serial 12345678
-uv run --extra model --extra gui python main.py --no-camera --no-browser --host 127.0.0.1 --port 7860
+uv run --extra model --extra gui python main.py --config config/preprocess.yaml --checkpoint model/best_model.pt --device cpu --batch-size 8 --camera-serial 12345678
+uv run --extra model --extra gui python main.py --no-camera --checkpoint model/best_model.pt --no-browser --host 127.0.0.1 --port 7860
+uv run --extra model --extra gui python main.py --no-camera --checkpoint model/best_model.pt
 ```
 
 `--device cuda:0`은 CUDA를 사용할 수 있는 환경에서 지정합니다. 카메라 연결에
@@ -388,7 +393,7 @@ uv run --extra model --extra gui python main.py --no-camera --no-browser --host 
 
 결과는 P1~P3 평균·개별 함침율, 측정 시각, 소요 시간과 자동 저장 상태를 표시합니다.
 INSPECTION RESULT와 각 History 항목에 **측정 소요 시간**을 초 단위, 소수점 셋째 자리까지 표시합니다.
-서버에서 측정 요청 처리를 시작한 시점부터 프레임 취득, ROI 검출, 전처리, 6장 추론,
+서버에서 측정 요청 처리를 시작한 시점부터 프레임 취득, ROI 검출, 전처리, 추론,
 함침율 계산과 결과 이미지 생성이 완료될 때까지를 단조 시계로 측정합니다.
 서버 대기열·네트워크 전송·브라우저 렌더링·이력 파일 저장 시간은 포함하지 않습니다.
 작은 화면에서는 세로 배치로 전환해 스크롤할 수 있습니다.
@@ -440,10 +445,19 @@ P1~P3 회전 보정·추론·검정 픽셀 제외 규칙을 적용합니다. `�
 
 기본 모델은 `model/best_model.pt`이며 `--checkpoint`, `--data-root`,
 `--output-dir`, `--device`를 바꿀 수 있습니다. 결과는
-`tests/inference/results/pce20_error_table.png`와 같은 이름의 CSV·JSON으로
+[`tests/inference/results/pce20_error_table.png`](tests/inference/results/pce20_error_table.png)와
+같은 이름의 CSV·JSON으로
 저장됩니다. 표의 차이는 `P2 예측 - P2 정답`(%p), 오차율은
 `|차이| / P2 정답 × 100`(%)입니다. 전체 20건과 검증용 12건의 MAE·평균 오차율을
 별도로 표시합니다.
+
+현재 `best_model.pt`(SHA256 `4a070ce0…`)로 실행한 P2 기준 결과는 다음과
+같습니다. 모델이나 입력 데이터가 바뀌면 스크립트를 다시 실행해 갱신하세요.
+
+| 범위 | 건수 | MAE (%p) | 평균 상대 오차율 |
+| --- | ---: | ---: | ---: |
+| 전체 | 20 | 2.10 | 2.46% |
+| 검증용 샘플 | 12 | 1.66 | 1.93% |
 
 ### 검증
 
@@ -451,7 +465,7 @@ P1~P3 회전 보정·추론·검정 픽셀 제외 규칙을 적용합니다. `�
 uv run --extra model --extra gui python -m unittest discover -s tests -v
 ```
 
-참고 프로젝트 `../vision_data`가 없는 환경에서도 복사된 `model/best.pt`와 현재
+참고 프로젝트 `../vision_data`가 없는 환경에서도 포함된 `model/best_model.pt`와 현재
 프로젝트의 전처리·추론·후처리 모듈로 실행할 수 있습니다. 다른 PC에서 가져온
 `.venv`는 원래 PC의 Python 경로를 참조할 수 있으므로 해당 PC에서 `uv sync
 --extra model --extra gui`로 가상환경을 다시 구성하세요.
