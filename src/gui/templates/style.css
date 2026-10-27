@@ -18,6 +18,11 @@ footer, .built-with { display: none !important; }
 .section-label { color: #bbb; font-size: 11px; font-weight: 700; letter-spacing: .65px; margin-bottom: 10px; }
 .section-label span { color: var(--vsc-muted); float: right; font: 10px Consolas, monospace; }
 .hint { color: var(--vsc-muted); font-size: 11px; line-height: 1.5; margin-top: 6px; }
+.mode-panel { gap: 6px !important; }
+.inspection-mode label { color: #c5c5c5 !important; font-size: 12px !important; }
+.inspection-mode .wrap { flex-direction: column !important; align-items: flex-start !important; }
+.mode-hint { margin-top: 0; }
+.mode-result { display: inline-block; margin-bottom: 10px; padding: 4px 7px; border: 1px solid #3d6480; color: #9cdcfe; background: #1c303d; font-size: 11px; font-weight: 700; }
 .control-group label, .input-source label { color: #c5c5c5 !important; font-size: 12px !important; }
 .asset-frame { border: 1px solid var(--vsc-line); background: #111; }
 .asset-frame img, .file-input img { object-fit: contain !important; background: #000; }

@@ -8,10 +8,12 @@ from threading import Event
 import unittest
 from unittest.mock import Mock, patch
 
+import numpy as np
 import yaml
 
 from Cam_test import CamTestController
-from src.hardware.camera_config import DEFAULT_CAMERA_CONFIG, load_camera_settings, save_camera_exposure
+from src.hardware.camera_config import (DEFAULT_CAMERA_CONFIG, load_camera_settings,
+                                        save_camera_exposure, save_camera_pixel_format)
 from src.hardware.camera_control import BaslerCameraSettings, CameraControl, CameraError, CameraStatus
 
 
@@ -22,11 +24,32 @@ class CameraConfigTests(unittest.TestCase):
         self.path = Path(folder.name) / "camera.yaml"
         self.path.write_text("exposure_us: 10000\n", encoding="utf-8")
 
-    def test_project_default_is_ten_milliseconds(self):
+    def test_project_default_matches_saved_camera_settings(self):
         settings = load_camera_settings()
         self.assertTrue(DEFAULT_CAMERA_CONFIG.is_absolute())
-        self.assertEqual(settings.exposure_us, 10000)
-        self.assertEqual(settings, BaslerCameraSettings())
+        self.assertEqual(settings.exposure_us,
+                         yaml.safe_load(DEFAULT_CAMERA_CONFIG.read_text(encoding="utf-8"))["exposure_us"])
+        self.assertEqual(settings.pixel_format,
+                         yaml.safe_load(DEFAULT_CAMERA_CONFIG.read_text(encoding="utf-8"))["pixel_format"])
+
+    def test_pixel_format_round_trip_preserves_exposure(self):
+        save_camera_pixel_format("Mono8", self.path)
+        self.assertEqual(load_camera_settings(self.path).pixel_format, "Mono8")
+        self.assertEqual(load_camera_settings(self.path).exposure_us, 10000)
+        save_camera_exposure(18000, self.path)
+        self.assertEqual(load_camera_settings(self.path).pixel_format, "Mono8")
+        self.assertEqual(load_camera_settings(self.path).exposure_us, 18000)
+        save_camera_pixel_format("BayerGR12", self.path)
+        self.assertEqual(load_camera_settings(self.path).pixel_format, "BayerGR12")
+
+    def test_invalid_pixel_format_is_rejected(self):
+        original = self.path.read_bytes()
+        with self.assertRaises(ValueError):
+            save_camera_pixel_format("Mono12", self.path)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.path.write_text("exposure_us: 10000\npixel_format: Mono12\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "pixel_format"):
+            load_camera_settings(self.path)
 
     def test_custom_config_changes_only_exposure(self):
         self.path.write_text("exposure_us: 25000\n", encoding="utf-8")
@@ -169,6 +192,55 @@ class CameraConfigTests(unittest.TestCase):
         start.assert_not_called()
         device.assert_not_called()
 
+    def test_pixel_format_switch_restarts_stream_and_clears_old_frame(self):
+        camera = CameraControl()
+        camera._thread = Mock()
+        camera._thread.is_alive.return_value = True
+        with patch.object(camera, "stop") as stop, patch.object(camera, "start") as start:
+            camera.set_pixel_format("Mono8")
+        stop.assert_called_once()
+        start.assert_called_once()
+        self.assertEqual(camera.settings.pixel_format, "Mono8")
+        with self.assertRaises(ValueError):
+            camera.set_pixel_format("Mono12")
+
+    def test_mono_frame_is_presented_as_equal_rgb_channels(self):
+        camera = CameraControl(settings=BaslerCameraSettings(pixel_format="Mono8"))
+        camera._converter = Mock()
+        grab = Mock()
+        grab.IsValid.return_value = True
+        grab.GrabSucceeded.return_value = True
+        grab.GetArray.return_value = np.array([[0, 127], [255, 42]], dtype=np.uint8)
+        grab.GetWidth.return_value = 2
+        grab.GetHeight.return_value = 2
+        grab.GetBlockID.return_value = 1
+        grab.GetTimeStamp.return_value = 123
+        sensor = Mock()
+        sensor.RetrieveResult.return_value = grab
+        with patch.object(camera, "_require_camera", return_value=sensor), \
+                patch("src.hardware.camera_control._load_pylon", return_value=(Mock(), Mock())):
+            frame = camera._retrieve_frame()
+        self.assertEqual(frame.pixel_format, "Mono8")
+        self.assertEqual(frame.display_rgb.shape, (2, 2, 3))
+        for channel in range(3):
+            np.testing.assert_array_equal(frame.display_rgb[:, :, channel], frame.raw_array)
+        camera._converter.Convert.assert_not_called()
+
+    def test_main_ui_saves_grayscale_choice_without_camera_connection(self):
+        from src.gui import app
+
+        camera = CameraControl()
+        with patch.multiple(app, camera_control=camera, camera_enabled=False,
+                            active_camera_config_path=self.path), \
+                patch.object(app, "renderStatus", return_value="status"), \
+                patch.object(camera, "start") as start:
+            status, message = app.applyCameraPixelFormat("Mono8")
+        self.assertEqual(status, "status")
+        self.assertIn("저장 완료", message)
+        self.assertEqual(load_camera_settings(self.path).pixel_format, "Mono8")
+        self.assertEqual(camera.settings.pixel_format, "Mono8")
+        start.assert_not_called()
+
     def test_connected_camera_updates_sensor_without_reconnecting(self):
         camera = CameraControl()
         camera._connected = True
@@ -238,6 +310,7 @@ class CameraConfigTests(unittest.TestCase):
                 patch.object(camera, "_set_number") as set_number, \
                 patch.object(camera, "_set_bool"), patch.object(camera, "_set_node_to_max"):
             camera._apply_settings()
+        set_enum.assert_any_call(device, "PixelFormat", "BayerGR12")
         set_enum.assert_any_call(device, "ExposureAuto", "Off", required=False)
         set_number.assert_any_call(device, ("ExposureTime", "ExposureTimeAbs"), 10000)
 
@@ -257,6 +330,24 @@ class CameraConfigTests(unittest.TestCase):
         camera.start.assert_called_once()
         camera.stop.assert_called_once()
         launch.assert_called_once()
+
+    def test_file_only_ui_does_not_open_camera_or_lighting_port(self):
+        from src.gui import app
+
+        camera = Mock()
+        camera.settings.exposure_us = 10000
+        with patch.multiple(app, camera_control=Mock(), inspection_engine=None,
+                            model_error=None, camera_enabled=False, roi_config_path=None), \
+                patch.object(app, "CameraControl", return_value=camera), \
+                patch.object(app, "connect_light") as connect_light, \
+                patch.object(app, "disconnect_light"), \
+                patch.object(app.demo, "launch"), \
+                patch("src.gui.inspection.InspectionEngine"):
+            app.launchApp(use_camera=False, inbrowser=False)
+            with patch.object(app, "inspection_engine", None):
+                self.assertIn("LIGHTING: 파일 검사 모드 · 연결하지 않음", app.renderStatus())
+        camera.start.assert_not_called()
+        connect_light.assert_not_called()
 
 
 if __name__ == "__main__":

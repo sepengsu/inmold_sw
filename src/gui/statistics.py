@@ -4,6 +4,7 @@ from html import escape
 from math import ceil
 import sqlite3
 
+import cv2
 import gradio as gr
 
 
@@ -62,9 +63,18 @@ class StatisticsController:
             original = self.store().read_image(record.original_path)
             result = self.store().read_image(record.result_path)
             crops = []
+            certification = record.metadata.get("conditions", {}).get("inspection_mode") == "certification"
             for region in record.metadata.get("regions", []):
                 x, y, width, height = (region[key] for key in ("x", "y", "width", "height"))
-                crops.append(result[y:y + height, x:x + width].copy())
+                if certification and "quad" in region:
+                    from src.PCE.inspection import rectify_region
+
+                    crop = rectify_region(result, region)
+                else:
+                    crop = result[y:y + height, x:x + width].copy()
+                if certification:
+                    crop = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_LINEAR)
+                crops.append(crop)
             crops = (crops + [None] * 3)[:3]
             elapsed = "—" if record.elapsed_seconds is None else f"{record.elapsed_seconds:.3f}초"
             text = (f"**{escape(record.measured_at)}** · 평균 **{record.average:.3f}%** · 소요 시간 **{elapsed}**\n\n"

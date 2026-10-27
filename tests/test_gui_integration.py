@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from time import monotonic
 
 import numpy as np
@@ -197,6 +197,30 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(self.app.history_store.summary()["count"], 2)
         restored = self.app.loadHistory()[1]
         self.assertEqual([r.record_id for r in restored], [r.record_id for r in second[2]])
+
+    def test_certification_mode_is_shown_and_saved_with_measurement(self):
+        self.inference.valid_pixels = (800, 820, 830)
+        engine = SimpleNamespace(inspect=Mock(side_effect=AssertionError("normal path used")),
+                                 inspect_certification=Mock(return_value=self.inference))
+        with patch.object(self.app, "inspection_engine", engine):
+            result = self.app.inspectCamera([], "file", self.frame,
+                                            inspection_mode="certification")
+        engine.inspect_certification.assert_called_once_with(self.frame)
+        self.assertIn("공인인증 평가 모드", result[0])
+        self.assertIn("256×256px", result[0])
+        self.assertIn("유효 픽셀 · P1 800", result[0])
+        self.assertIn("공인인증 평가 모드", result[1])
+        self.assertEqual(result[2][0].metadata["conditions"]["inspection_mode"], "certification")
+        self.assertEqual(result[2][0].metadata["conditions"]["valid_pixels"], [800, 820, 830])
+        self.assertEqual(self.app.history_store.query(limit=1)[0].metadata["conditions"]["inspection_mode"],
+                         "certification")
+
+    def test_unknown_inspection_mode_stops_before_inference(self):
+        inspect = Mock(side_effect=AssertionError("inference used"))
+        with patch.object(self.app, "inspection_engine", SimpleNamespace(inspect=inspect)):
+            result = self.app.inspectCamera([], "file", self.frame, inspection_mode="unknown")
+        self.assertIn("검사 모드를 선택하세요", result[0])
+        inspect.assert_not_called()
 
     def test_missing_input_and_model_error_do_not_add_history(self):
         records = [self.app.InspectionRecord(90, 91, 92)]

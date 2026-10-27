@@ -44,9 +44,9 @@ quality:
   # UI presets change the score and linked quality gates together.
   min_score: 0.25
   min_inlier_ratio: 0.35
-  min_x_coverage: 0.40
+  min_x_coverage: 0.4
   min_third_support: 0
-  max_gap_ratio: 0.60
+  max_gap_ratio: 0.6
   max_rmse_px: 14.0
   max_median_residual_px: 14.0
   max_tilt_deg: 25.0

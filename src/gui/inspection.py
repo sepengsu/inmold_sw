@@ -154,3 +154,9 @@ class InspectionEngine:
         annotated, crops = annotate_frame(frame_rgb, exposures, regions, self.last_roi_detection)
         return InspectionResult(scores, float(np.mean(scores)), annotated, crops,
                                 self.last_roi_detection, regions, dict(roi))
+
+    def inspect_certification(self, frame_rgb: np.ndarray):
+        from src.PCE import inspect_frame
+
+        self.last_roi_detection = None
+        return inspect_frame(frame_rgb, self.model, self.checkpoint["threshold"], self.config)

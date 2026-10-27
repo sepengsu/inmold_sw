@@ -20,6 +20,9 @@ class CameraError(RuntimeError):
     """Raised for a camera connection, configuration, or acquisition failure."""
 
 
+CAMERA_PIXEL_FORMATS = {"grayscale": "Mono8", "color": "BayerGR12"}
+
+
 @dataclass(frozen=True, slots=True)
 class BaslerCameraSettings:
     """Acquisition settings applied before streaming starts."""
@@ -214,6 +217,18 @@ class CameraControl:
                 self._last_frame_at = None
             return applied
 
+    def set_pixel_format(self, pixel_format: str) -> None:
+        """Switch acquisition format while the camera is idle, then reconnect."""
+        if pixel_format not in CAMERA_PIXEL_FORMATS.values():
+            raise ValueError("촬영 형식은 Mono8 또는 BayerGR12여야 합니다.")
+        if pixel_format == self.settings.pixel_format:
+            return
+        was_running = self.is_running
+        self.stop()
+        self.settings = replace(self.settings, pixel_format=pixel_format)
+        if was_running:
+            self.start()
+
     def _capture_loop(self) -> None:
         try:
             with self._device_lock:
@@ -329,7 +344,11 @@ class CameraControl:
             if self._converter is None:
                 raise CameraError("RGB 변환기가 초기화되지 않았습니다.")
             raw_array = result.GetArray().copy()
-            display_rgb = self._converter.Convert(result).GetArray().copy()
+            if self.settings.pixel_format == "Mono8":
+                # Keep the inspection and history interfaces consistently RGB.
+                display_rgb = np.repeat(raw_array[:, :, np.newaxis], 3, axis=2)
+            else:
+                display_rgb = self._converter.Convert(result).GetArray().copy()
             return CameraFrame(
                 display_rgb=display_rgb,
                 raw_array=raw_array,

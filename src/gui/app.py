@@ -13,8 +13,8 @@ import gradio as gr
 from src.gui.controls import brightness_slider, roi_threshold_controls
 from src.gui.statistics import StatisticsController, TABLE_HEADERS, summary_html
 from src.inspection_history import InspectionHistoryStore, InspectionRecord, LOCAL_TIMEZONE
-from src.hardware.camera_control import CameraControl
-from src.hardware.camera_config import DEFAULT_CAMERA_CONFIG, load_camera_settings
+from src.hardware.camera_control import CameraControl, CameraError
+from src.hardware.camera_config import DEFAULT_CAMERA_CONFIG, load_camera_settings, save_camera_pixel_format
 from src.hardware.lighting_config import LightingConfigStore
 from src.hardware.led_control import (
     BAUD_RATE,
@@ -41,6 +41,10 @@ CSS_PATH = TEMPLATE_DIR / "style.css"
 FRAGMENTS_TEMPLATE_PATH = TEMPLATE_DIR / "fragments.html"
 PROJECT_ROOT = APP_DIR.resolve().parents[1]
 MAX_HISTORY = 5
+INSPECTION_MODES = {
+    "normal": "일반 모드",
+    "certification": "공인인증 평가 모드",
+}
 lighting_config = LightingConfigStore()
 INITIAL_LIGHTING_VALUES, INITIAL_LIGHTING_MESSAGE = lighting_config.initial_for_ui()
 DEFAULT_BRIGHTNESS = sum(INITIAL_LIGHTING_VALUES) / len(LIGHT_GROUPS)
@@ -55,6 +59,7 @@ inspection_engine: InspectionEngine | None = None
 model_error: str | None = None
 camera_enabled = True
 roi_config_path: Path | None = None
+active_camera_config_path = DEFAULT_CAMERA_CONFIG
 
 
 def renderFragment(name: str, **values: object) -> str:
@@ -91,6 +96,8 @@ def renderHistory(records: Sequence[InspectionRecord]) -> str:
                 p3=record.p3,
                 timestamp=escape(record.measured_at),
                 source=escape(record.source),
+                mode=escape(INSPECTION_MODES.get(
+                    record.metadata.get("conditions", {}).get("inspection_mode"), "")),
                 duration=formatInspectionDuration(record.elapsed_seconds),
                 saved="저장됨" if record.record_id else "미저장",
             )
@@ -217,6 +224,8 @@ def renderStatus() -> str:
         light_state = "RS232 OPEN · ACK 확인"
     elif light.error:
         light_state = light.error
+    lighting_detail = (f"{escape(COM_PORT)} · {BAUD_RATE} bps · {escape(light_state)}"
+                       if camera_enabled else "파일 검사 모드 · 연결하지 않음")
     camera_state = "READY" if camera.connected else escape(camera.error or "연결 대기")
     if not camera_enabled:
         camera_state = "파일 검사 모드"
@@ -238,8 +247,9 @@ def renderStatus() -> str:
     return (
         '<div class="section-label">SYSTEM STATUS</div><div class="system-list">'
         f'<div>CAMERA: {camera_state}</div>'
+        f'<div>촬영 형식: {"GrayScale · Mono8" if camera_control.settings.pixel_format == "Mono8" else "RGB Color · BayerGR12"}</div>'
         f'<div>노출 설정: {camera_control.settings.exposure_us:g} µs</div><div>MODEL: {model_state}</div>'
-        f'<div>LIGHTING: {escape(COM_PORT)} · {BAUD_RATE} bps · {escape(light_state)}</div>'
+        f'<div>LIGHTING: {lighting_detail}</div>'
         f'{detail}</div>'
     )
 
@@ -256,8 +266,42 @@ def reconnectCamera() -> str:
     return renderStatus()
 
 
+def applyCameraPixelFormat(pixel_format: str) -> tuple[str, str]:
+    if pixel_format not in ("Mono8", "BayerGR12"):
+        return renderStatus(), "⚠ 촬영 형식을 선택하세요."
+    try:
+        save_camera_pixel_format(pixel_format, active_camera_config_path)
+        camera_control.set_pixel_format(pixel_format)
+        if camera_enabled and not camera_control.is_running:
+            camera_control.start()
+    except (ValueError, OSError, CameraError) as error:
+        return renderStatus(), f"⚠ 촬영 형식 적용 실패: {error}"
+    label = "GrayScale (Mono8)" if pixel_format == "Mono8" else "RGB Color (BayerGR12)"
+    connection = "카메라 재연결 중" if camera_enabled else "다음 카메라 연결 시 적용"
+    return renderStatus(), f"✓ {label} 저장 완료 · {connection}"
+
+
 def initialSource() -> str:
     return "camera" if camera_enabled else "file"
+
+
+def modeDescription(mode: str) -> str:
+    if mode == "certification":
+        return ("<div class=\"hint mode-hint\">공인인증 평가 모드 선택됨 · "
+                "어두운 영역 3개를 검출하고 회전 보정해 각 크롭을 256×256 영상 전체로 확대해 추론합니다. "
+                "점수 분모에서 원본 크롭의 검정 픽셀을 제외합니다. "
+                "인증 판정 기준은 아직 적용되지 않습니다.</div>")
+    return "<div class=\"hint mode-hint\">일반 모드 선택됨 · 기존 측정 절차를 사용합니다.</div>"
+
+
+def modePresentation(mode: str) -> tuple:
+    if mode == "certification":
+        return (modeDescription(mode), renderFragment("measurement_info_pce"),
+                *(gr.update(label=f"P{index} · {position} · 256×256")
+                  for index, position in enumerate(("왼쪽", "가운데", "오른쪽"), 1)))
+    return (modeDescription(mode), renderFragment("measurement_info"),
+            *(gr.update(label=f"P{index} · {position} · 256×512")
+              for index, position in enumerate(("왼쪽", "가운데", "오른쪽"), 1)))
 
 
 def _inspectionError(message: str, records: list[InspectionRecord]) -> tuple:
@@ -275,8 +319,11 @@ def inspectCamera(
     uploaded_frame: object = None,
     light_1: float | None = None, light_2: float | None = None,
     light_3: float | None = None, light_4: float | None = None,
+    inspection_mode: str = "normal",
 ) -> tuple:
     started_at = monotonic()
+    if inspection_mode not in INSPECTION_MODES:
+        return _inspectionError("검사 모드를 선택하세요.", history_records)
     if source not in ("camera", "file"):
         return _inspectionError("검사 입력을 선택하세요.", history_records)
     frame = camera_control.get_latest_frame() if source == "camera" else uploaded_frame
@@ -288,7 +335,8 @@ def inspectCamera(
     if inspection_engine is None:
         return _inspectionError(model_error or "모델이 로드되지 않았습니다.", history_records)
     try:
-        inference = inspection_engine.inspect(frame)
+        inference = (inspection_engine.inspect_certification(frame)
+                     if inspection_mode == "certification" else inspection_engine.inspect(frame))
     except (ValueError, RuntimeError, OSError) as error:
         return _inspectionError(str(error), history_records)
     scores = inference.scores
@@ -299,12 +347,17 @@ def inspectCamera(
         "regions": list(getattr(inference, "regions", ())),
         "roi_detection": getattr(inference, "roi_detection", None),
         "model": getattr(inspection_engine, "model_info", getattr(inspection_engine, "checkpoint", {})),
-        "conditions": {"source": source},
+        "conditions": {"source": source, "inspection_mode": inspection_mode},
         "frame_shape": list(frame.shape),
     }
+    valid_pixels = getattr(inference, "valid_pixels", None)
+    if inspection_mode == "certification" and valid_pixels is not None:
+        metadata["conditions"]["valid_pixels"] = list(map(int, valid_pixels))
+        metadata["conditions"]["denominator"] = "nonblack_rectified_crop_pixels"
     if source == "camera":
         metadata["conditions"].update(
             exposure_us=camera_control.settings.exposure_us,
+            pixel_format=camera_control.settings.pixel_format,
             camera_serial=camera_control.serial_number,
             lighting_ui_percent=dict(zip((g.config_key for g in LIGHT_GROUPS),
                                           (light_1, light_2, light_3, light_4))),
@@ -331,7 +384,20 @@ def inspectCamera(
             p1=scores[0],
             p2=scores[1],
             p3=scores[2],
+            measurement_detail=("각 검출 영역을 회전 보정 후 256×256px로 확대 · 검정 픽셀은 분모에서 제외"
+                                if inspection_mode == "certification"
+                                else "각 256×512px · 중심 간격 547px"),
         )
+    result_html = (f'<div class="mode-result">{escape(INSPECTION_MODES[inspection_mode])}</div>'
+                   + result_html)
+    if inspection_mode == "certification" and valid_pixels is not None:
+        result_html += (f'<div class="result-caption">유효 픽셀 · P1 {valid_pixels[0]:,} · '
+                        f'P2 {valid_pixels[1]:,} · P3 {valid_pixels[2]:,}</div>')
+        angles = [region.get("rotation_deg") for region in getattr(inference, "regions", ())]
+        if all(angle is not None for angle in angles):
+            result_html += ('<div class="result-caption">회전 보정 · '
+                            + ' · '.join(f'P{index} {angle:+.1f}°'
+                                       for index, angle in enumerate(angles, 1)) + '</div>')
     detection = getattr(inference, "roi_detection", None)
     if detection is not None:
         result_html += (f'<div class="result-caption">자동 ROI '
@@ -419,6 +485,13 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
     average_brightness = gr.State(value=DEFAULT_BRIGHTNESS)
     with gr.Row(equal_height=False, elem_classes="main-grid") as inspection_page:
         with gr.Column(scale=2, elem_classes="side"):
+            with gr.Column(scale=0, elem_classes=["ui-block", "mode-panel"]):
+                gr.HTML('<div class="section-label">검사 모드</div>')
+                inspection_mode = gr.Radio(
+                    choices=[(label, key) for key, label in INSPECTION_MODES.items()],
+                    value="normal", show_label=False, elem_classes="inspection-mode",
+                )
+                mode_hint = gr.HTML(modeDescription("normal"))
             with gr.Column(scale=0, elem_classes="ui-block"):
                 gr.HTML(renderFragment("capture_label"))
                 camera_preview = gr.Image(
@@ -427,6 +500,15 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
                     height=160, buttons=[],
                 )
                 reconnect_button = gr.Button("카메라 연결 / 재시도", size="sm")
+                camera_pixel_format = gr.Radio(
+                    choices=[("GrayScale · Mono8", "Mono8"),
+                             ("RGB Color · BayerGR12", "BayerGR12")],
+                    value=camera_control.settings.pixel_format,
+                    label="카메라 촬영 형식", elem_classes="input-source",
+                )
+                pixel_format_apply = gr.Button("촬영 형식 적용 및 저장", size="sm")
+                pixel_format_status = gr.Markdown(
+                    "형식 변경 시 카메라를 재연결합니다. 검사 입력은 두 형식 모두 RGB 배열로 처리합니다.")
                 input_source = gr.Radio(
                     choices=[("실시간 카메라", "camera"), ("이미지 파일", "file")],
                     value="camera", label="검사 입력", elem_classes="input-source",
@@ -450,7 +532,7 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
                 gr.HTML('<div class="section-label">자동 ROI 설정</div>')
                 roi_threshold_controls(demo, roiThresholdConfig)
             with gr.Column(scale=0, elem_classes=["ui-block", "measurement-info"]):
-                gr.HTML(renderFragment("measurement_info"))
+                measurement_info = gr.HTML(renderFragment("measurement_info"))
 
         with gr.Column(scale=6, elem_classes="workbench"):
             with gr.Column(elem_classes="ui-block"):
@@ -509,9 +591,9 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
                 statistics_original = gr.Image(label="저장 원본", interactive=False, height=300)
                 statistics_result = gr.Image(label="저장 결과", interactive=False, height=300)
             with gr.Row(elem_classes="archive-regions"):
-                statistics_p1 = gr.Image(label="P1 · 256×512", interactive=False, height=230)
-                statistics_p2 = gr.Image(label="P2 · 256×512", interactive=False, height=230)
-                statistics_p3 = gr.Image(label="P3 · 256×512", interactive=False, height=230)
+                statistics_p1 = gr.Image(label="P1", interactive=False, height=230)
+                statistics_p2 = gr.Image(label="P2", interactive=False, height=230)
+                statistics_p3 = gr.Image(label="P3", interactive=False, height=230)
             with gr.Accordion("촬영·검사 조건", open=False):
                 statistics_metadata = gr.JSON(label="저장된 측정 조건")
 
@@ -519,9 +601,18 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
     preview_timer.tick(getCameraPreview, outputs=[camera_preview, system_status],
                        show_progress="hidden", queue=False, api_visibility="private")
     reconnect_button.click(reconnectCamera, outputs=system_status, show_progress="hidden")
+    demo.load(lambda: camera_control.settings.pixel_format, outputs=camera_pixel_format,
+              queue=False, api_visibility="private")
+    pixel_format_apply.click(applyCameraPixelFormat, inputs=camera_pixel_format,
+                             outputs=[system_status, pixel_format_status],
+                             show_progress="hidden", concurrency_id="camera-settings",
+                             concurrency_limit=1)
     demo.load(initialSource, outputs=input_source, queue=False)
     input_source.change(lambda source: gr.update(visible=source == "file"),
                         inputs=input_source, outputs=file_input, queue=False)
+    inspection_mode.change(modePresentation, inputs=inspection_mode,
+                           outputs=[mode_hint, measurement_info, p1_image, p2_image, p3_image],
+                           queue=False, api_visibility="private")
 
     with gr.Column(visible=False, elem_classes="lighting-modal") as lighting_modal:
         with gr.Column(elem_classes="lighting-dialog"):
@@ -611,7 +702,7 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
 
     inspect_button.click(
         inspectCamera,
-        inputs=[history_records, input_source, file_input, *light_controls],
+        inputs=[history_records, input_source, file_input, *light_controls, inspection_mode],
         outputs=[result, history, history_records, inspection_output,
                  p1_image, p2_image, p3_image],
         api_name="inspect", concurrency_id="inspection", concurrency_limit=1,
@@ -652,8 +743,9 @@ def launchApp(
     inbrowser: bool = True, server_name: str = "127.0.0.1", server_port: int = 7860,
     camera_config_path: Path = DEFAULT_CAMERA_CONFIG,
 ) -> None:
-    global inspection_engine, model_error, camera_control, camera_enabled, roi_config_path
+    global inspection_engine, model_error, camera_control, camera_enabled, roi_config_path, active_camera_config_path
     camera_settings = load_camera_settings(camera_config_path)
+    active_camera_config_path = camera_config_path
     camera_enabled = use_camera
     camera_control = CameraControl(serial_number=camera_serial, settings=camera_settings)
     inspection_engine = None
@@ -669,11 +761,11 @@ def launchApp(
     except (ImportError, ValueError, RuntimeError, OSError, KeyError) as error:
         model_error = str(error)
     try:
-        try:
-            connect_light()
-        except LightCommunicationError:
-            pass  # Connection errors remain visible in the system status.
         if use_camera:
+            try:
+                connect_light()
+            except LightCommunicationError:
+                pass  # Connection errors remain visible in the system status.
             camera_control.start()
         demo.launch(inbrowser=inbrowser, server_name=server_name, server_port=server_port,
                     theme=theme, css_paths=[CSS_PATH],
