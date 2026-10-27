@@ -202,7 +202,7 @@ $env:LIGHT_SERIAL_BAUDRATE = "9600"
 
 - `src.roi`: 참고 저장소의 Gabor·DP·RANSAC 경계 검출 및 품질 검증.
 - `src.preprocess`: uint8 이미지 로드 → 자동/고정 ROI → CLAHE → 겹치는 타일과 좌표 metadata. 리사이즈하지 않습니다.
-- `src.model`: `vision_data`의 `grayscale_unet` 체크포인트 로드 및 타일별 Exposure 확률 예측.
+- `src.model`: `vision_data`의 1채널/3채널 U-Net 체크포인트 로드 및 타일별 대상 픽셀 확률 예측.
 - `src.postprocess`: 패딩을 제외하고 겹친 타일 확률 평균 → 이진 마스크 → 원본 좌표 복원.
 
 전처리에는 NumPy, OpenCV, PyYAML, SciPy, scikit-image가 필요합니다. 모델 추론에는 PyTorch도 필요합니다.
@@ -240,7 +240,12 @@ print(impregnation_pct(roi_exposure, result["valid_mask"]))  # 유효 직물 픽
 원본 ROI 밖은 `False`로 채웁니다. ROI 밖을 함침율 계산에 포함하지 마세요.
 
 이 모델의 `True`는 미함침(Exposure) 픽셀입니다. 현재 체크포인트 로더는
-`architecture=grayscale_unet`만 지원하며, 참고 프로젝트의 benchmark 모델은 대상이 아닙니다.
+`architecture=grayscale_unet`(Exposure 1채널)과
+`architecture=grayscale_unet32_3class`(Background/Exposure/Weldline 3채널)를
+지원합니다. 3클래스 모델은 학습 코드의 `predict_binary`와 동일하게
+`P(Exposure) + P(Weldline)`을 합쳐 이진 미함침 영역과 함침율을 계산합니다.
+사용한 대상 클래스는 UI 상태·측정 결과·이력 메타데이터에 표시됩니다.
+참고 프로젝트의 benchmark 모델은 대상이 아닙니다.
 `model/best.pt`는 참고 프로젝트의 `unet_current_gt_A_20261009`에서 복사한
 grayscale U-Net 체크포인트입니다. 현재 정답 데이터 검증 Dice는 0.911978이며,
 해당 체크포인트의 임계값은 0.5입니다.
@@ -416,6 +421,29 @@ P1/P2/P3 평균·측정 평균 최솟값/최댓값을 확인합니다. 날짜는
 CSV 다운로드 파일을 눌러 받습니다. Excel에서 한글을 읽을 수 있도록 UTF-8 BOM으로 저장하며,
 소수점 표시 전의 측정값·시간과 이미지 상대 경로·좌표·촬영 조건을 포함합니다.
 기록 수와 관계없이 행 단위로 내보내며, 조회 조건을 변경하면 이전 다운로드 링크를 초기화합니다.
+
+통계 화면의 **전체 측정 이력 초기화**를 열어 삭제 확인을 선택한 뒤 버튼을 누르면
+조회 필터와 관계없이 전체 측정 기록, 저장된 원본·결과 PNG, 앱이 생성한 CSV
+내보내기 파일을 삭제합니다. 초기화 후 통계와 검사 화면의 최근 이력을 즉시 갱신합니다.
+`data/PCE` 등 검사 입력 데이터와 모델 파일은 삭제하지 않습니다.
+
+### PCE 검증용 20건 오차표
+
+`data/검증용 20`의 Case 폴더마다 있는 이미지 1장에 공인인증 평가 모드와 같은
+P1~P3 회전 보정·추론·검정 픽셀 제외 규칙을 적용합니다. `정답지.txt`의 폴더별
+값은 **P2 함침율 정답**이므로 P2 예측값만 비교합니다. P1/P3 예측값은
+오차 계산에 포함하지 않습니다.
+
+```powershell
+.\.venv\Scripts\python.exe tests\inference\report_pce20.py
+```
+
+기본 모델은 `model/best_model.pt`이며 `--checkpoint`, `--data-root`,
+`--output-dir`, `--device`를 바꿀 수 있습니다. 결과는
+`tests/inference/results/pce20_error_table.png`와 같은 이름의 CSV·JSON으로
+저장됩니다. 표의 차이는 `P2 예측 - P2 정답`(%p), 오차율은
+`|차이| / P2 정답 × 100`(%)입니다. 전체 20건과 검증용 12건의 MAE·평균 오차율을
+별도로 표시합니다.
 
 ### 검증
 

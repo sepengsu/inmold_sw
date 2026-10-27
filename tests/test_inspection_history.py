@@ -97,6 +97,22 @@ class InspectionHistoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.read_image("../other.png")
 
+    def test_clear_all_removes_history_images_and_exports_only(self):
+        saved = self.store.save(self.record, self.original, self.result)
+        export = self.store.export_csv()
+        outside = self.root.parent / "keep.txt"
+        outside.write_text("keep", encoding="utf-8")
+        self.assertTrue((self.root / saved.original_path).exists())
+        self.assertTrue(export.exists())
+
+        self.assertEqual(self.store.clear_all(), 1)
+        self.assertEqual(self.store.summary()["count"], 0)
+        self.assertEqual(self.store.query(), [])
+        self.assertFalse((self.root / "images").exists())
+        self.assertFalse((self.root / "exports").exists())
+        self.assertTrue(outside.exists())
+        self.assertEqual(self.store.clear_all(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

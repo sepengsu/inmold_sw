@@ -1,4 +1,4 @@
-"""Basler RGB frame to the project's Exposure segmentation and UI results."""
+"""Basler RGB frame to supported segmentation models and UI results."""
 
 from dataclasses import dataclass
 import hashlib

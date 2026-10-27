@@ -2,6 +2,7 @@
 
 import unittest
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import gradio as gr
@@ -11,6 +12,7 @@ import numpy as np
 from src.PCE.inspection import detect_regions, inspect_frame
 from src.gui.statistics import StatisticsController
 from src.inspection_history import InspectionHistoryStore, InspectionRecord
+from tests.inference.report_pce20 import make_row
 
 
 def sample_frame(points=3):
@@ -21,6 +23,14 @@ def sample_frame(points=3):
 
 
 class PceTests(unittest.TestCase):
+    def test_verification_report_compares_only_p2_with_answer(self):
+        row = make_row("case21-1", "검증용 샘플", 80.0, (10.0, 82.0, 99.0), Path("image.png"))
+        self.assertEqual(row["p2_prediction_pct"], 82.0)
+        self.assertEqual(row["signed_error_pp"], 2.0)
+        self.assertEqual(row["relative_error_pct"], 2.5)
+        self.assertNotIn("p1_pct", row)
+        self.assertNotIn("p3_pct", row)
+
     def test_detects_three_left_to_right_without_outer_background(self):
         frame = sample_frame()
         gray = frame[:, :, 0]

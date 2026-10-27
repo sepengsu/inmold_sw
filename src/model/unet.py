@@ -16,10 +16,13 @@ class DoubleConv(nn.Sequential):
 
 
 class UNet(nn.Module):
-    def __init__(self, base_channels: int = 32, activation_checkpointing: bool = False):
+    def __init__(self, base_channels: int = 32, activation_checkpointing: bool = False,
+                 out_channels: int = 1):
         super().__init__()
         if base_channels < 8 or base_channels % 8:
             raise ValueError("base_channels must be a positive multiple of 8")
+        if out_channels < 1:
+            raise ValueError("out_channels must be positive")
         widths = [base_channels * 2**i for i in range(5)]
         self.activation_checkpointing = activation_checkpointing
         self.encoders = nn.ModuleList(
@@ -30,7 +33,7 @@ class UNet(nn.Module):
             DoubleConv(widths[i + 1] + widths[i], widths[i])
             for i in range(3, -1, -1)
         )
-        self.head = nn.Conv2d(widths[0], 1, 1)
+        self.head = nn.Conv2d(widths[0], out_channels, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         def apply(block, value):
@@ -47,3 +50,11 @@ class UNet(nn.Module):
             x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
             x = apply(decoder, torch.cat((skip, x), dim=1))
         return self.head(x)
+
+    def predict_binary(self, x: torch.Tensor, threshold: float = 0.5):
+        """Merge Exposure and Weldline from a three-class head into one defect mask."""
+        if self.head.out_channels != 3:
+            raise ValueError("predict_binary requires a 3-class Background/Exposure/Weldline head")
+        logits = self(x)
+        probability = torch.softmax(logits, dim=1)[:, 1:].sum(dim=1)
+        return probability >= threshold, probability, logits

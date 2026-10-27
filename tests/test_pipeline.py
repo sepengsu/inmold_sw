@@ -82,6 +82,44 @@ class ModelTests(unittest.TestCase):
             self.assertTrue(np.isfinite(outputs[0]).all())
             self.assertTrue(((0 <= outputs[0]) & (outputs[0] <= 1)).all())
 
+    def test_three_class_head_merges_exposure_and_weldline(self):
+        import torch
+        from src.model import UNet, predict_tiles
+
+        model = UNet(base_channels=8, out_channels=3)
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.zero_()
+            model.head.bias.copy_(torch.tensor([0.0, 1.0, 2.0]))
+        expected = float(torch.softmax(model.head.bias.detach(), dim=0)[1:].sum())
+        probability = predict_tiles(model, [np.zeros((32, 32), dtype=np.uint8)])[0]
+        np.testing.assert_allclose(probability, expected, rtol=1e-6)
+        binary, direct_probability, logits = model.predict_binary(
+            torch.zeros((1, 1, 32, 32)), threshold=0.5)
+        self.assertEqual(tuple(logits.shape), (1, 3, 32, 32))
+        self.assertTrue(binary.all())
+        self.assertAlmostEqual(float(direct_probability[0, 0, 0].detach()), expected, places=6)
+
+    def test_three_class_head_rejects_invalid_channels_and_binary_method_on_single_head(self):
+        import torch
+        from src.model import UNet
+
+        with self.assertRaisesRegex(ValueError, "out_channels"):
+            UNet(base_channels=8, out_channels=0)
+        with self.assertRaisesRegex(ValueError, "3-class"):
+            UNet(base_channels=8).predict_binary(torch.zeros((1, 1, 32, 32)))
+
+    def test_three_class_checkpoint_rejects_unexpected_class_order(self):
+        from unittest.mock import patch
+        from src.model import load_checkpoint
+
+        checkpoint = {"architecture": "grayscale_unet32_3class", "base_channels": 32,
+                      "class_names": ("Background", "Weldline", "Exposure"),
+                      "threshold": 0.5}
+        with patch("src.model.inference.torch.load", return_value=checkpoint):
+            with self.assertRaisesRegex(ValueError, "class_names"):
+                load_checkpoint("unused.pt")
+
 
 if __name__ == "__main__":
     unittest.main()

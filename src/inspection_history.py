@@ -8,6 +8,7 @@ import json
 from math import isfinite
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 from uuid import uuid4
 
@@ -185,6 +186,23 @@ class InspectionHistoryStore:
         if pixels is None:
             raise OSError("저장 영상을 읽을 수 없습니다.")
         return cv2.cvtColor(pixels, cv2.COLOR_BGR2RGB)
+
+    def clear_all(self) -> int:
+        """Delete all measurement rows and app-owned image/export folders."""
+        owned_folders = []
+        for name in ("images", "exports"):
+            folder = self.root / name
+            if folder.is_symlink() or folder.resolve().parent != self.root or folder.name != name:
+                raise ValueError(f"이력 폴더 경로가 올바르지 않습니다: {folder}")
+            owned_folders.append(folder)
+        with self._connection() as connection:
+            count = connection.execute("SELECT COUNT(*) FROM inspections").fetchone()[0]
+            connection.execute("DELETE FROM inspections")
+            connection.execute("DELETE FROM sqlite_sequence WHERE name = 'inspections'")
+        for folder in owned_folders:
+            if folder.exists():
+                shutil.rmtree(folder)
+        return count
 
     def export_csv(self, start_date=None, end_date=None, source="all") -> Path:
         where, parameters = self._where(start_date, end_date, source)

@@ -198,6 +198,17 @@ class WorkbenchTests(unittest.TestCase):
         restored = self.app.loadHistory()[1]
         self.assertEqual([r.record_id for r in restored], [r.record_id for r in second[2]])
 
+    def test_three_class_measurement_discloses_combined_positive_classes(self):
+        engine = SimpleNamespace(
+            inspect=lambda frame: self.inference,
+            checkpoint={"threshold": 0.5, "positive_classes": ("Exposure", "Weldline")},
+        )
+        with patch.object(self.app, "inspection_engine", engine):
+            result = self.app.inspectCamera([], "file", self.frame)
+        self.assertIn("대상 픽셀: Exposure + Weldline", result[0])
+        self.assertEqual(result[2][0].metadata["model"]["positive_classes"],
+                         ["Exposure", "Weldline"])
+
     def test_certification_mode_is_shown_and_saved_with_measurement(self):
         self.inference.valid_pixels = (800, 820, 830)
         engine = SimpleNamespace(inspect=Mock(side_effect=AssertionError("normal path used")),
@@ -292,6 +303,26 @@ class WorkbenchTests(unittest.TestCase):
         values = [getattr(block, "value", None) for block in self.app.demo.blocks.values()]
         self.assertIn("통계 보기", values)
         self.assertIn("CSV 내보내기", values)
+        self.assertIn("전체 이력 초기화", values)
+
+    def test_statistics_history_clear_requires_confirmation_and_refreshes(self):
+        with patch.object(self.app, "inspection_engine",
+                          SimpleNamespace(inspect=lambda frame: self.inference)):
+            self.app.inspectCamera([], "file", self.frame)
+        export = self.app.history_store.export_csv()
+        declined = self.app.clearHistory(False)
+        self.assertIn("삭제 확인", declined[5])
+        self.assertEqual(self.app.history_store.summary()["count"], 1)
+        self.assertTrue(export.exists())
+
+        cleared = self.app.clearHistory(True)
+        self.assertIn("1건", cleared[5])
+        self.assertEqual(cleared[1], [])
+        self.assertEqual(cleared[15], [])
+        self.assertFalse(cleared[16]["value"])
+        self.assertEqual(self.app.history_store.summary()["count"], 0)
+        self.assertFalse(export.exists())
+        self.assertEqual(cleared[14], self.app.renderHistory([]))
 
     def test_light_failure_leaves_dialog_open_and_close_does_not_send(self):
         with patch.object(self.app, "set_light_groups_brightness", side_effect=self.app.LightCommunicationError("no ACK")):

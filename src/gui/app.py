@@ -244,6 +244,8 @@ def renderStatus() -> str:
             detail = (f'<div>ROI: {roi["width"]} × {roi["height"]} '
                       f'@ ({roi["x"]}, {roi["y"]})</div>')
         detail += f'<div>PIXEL: {inspection_engine.checkpoint["threshold"]:g}</div>'
+        positive_classes = inspection_engine.checkpoint.get("positive_classes", ("Exposure",))
+        detail += f'<div>대상 픽셀: {escape(" + ".join(positive_classes))}</div>'
     return (
         '<div class="section-label">SYSTEM STATUS</div><div class="system-list">'
         f'<div>CAMERA: {camera_state}</div>'
@@ -390,6 +392,10 @@ def inspectCamera(
         )
     result_html = (f'<div class="mode-result">{escape(INSPECTION_MODES[inspection_mode])}</div>'
                    + result_html)
+    positive_classes = getattr(inspection_engine, "checkpoint", {}).get("positive_classes", ("Exposure",))
+    if len(positive_classes) > 1:
+        result_html += (f'<div class="result-caption">대상 픽셀: '
+                        f'{escape(" + ".join(positive_classes))}</div>')
     if inspection_mode == "certification" and valid_pixels is not None:
         result_html += (f'<div class="result-caption">유효 픽셀 · P1 {valid_pixels[0]:,} · '
                         f'P2 {valid_pixels[1]:,} · P3 {valid_pixels[2]:,}</div>')
@@ -417,7 +423,8 @@ def statisticsView(start_date=None, end_date=None, source="all", page=1):
 
 
 def showStatistics(start_date=None, end_date=None, source="all"):
-    return gr.update(visible=False), gr.update(visible=True), *statisticsView(start_date, end_date, source)
+    return (gr.update(visible=False), gr.update(visible=True),
+            *statisticsView(start_date, end_date, source), gr.update(value=False))
 
 
 def previousStatistics(start_date, end_date, source, page):
@@ -426,6 +433,23 @@ def previousStatistics(start_date, end_date, source, page):
 
 def nextStatistics(start_date, end_date, source, page):
     return statisticsView(start_date, end_date, source, page + 1)
+
+
+def clearHistory(confirmed: bool, start_date=None, end_date=None, source="all") -> tuple:
+    """Clear all saved measurements, then refresh archive and recent history."""
+    if not confirmed:
+        skipped = ["삭제 확인을 선택한 뒤 다시 누르세요." if index == 5 else gr.skip()
+                   for index in range(14)]
+        return (*skipped, gr.skip(), gr.skip(), gr.skip())
+    try:
+        count = history_store.clear_all()
+        message = f"전체 측정 이력 {count:,}건과 저장 영상·CSV를 초기화했습니다."
+    except (OSError, ValueError, sqlite3.Error) as error:
+        message = f"초기화 실패 또는 일부 파일 삭제 실패: {error}"
+    view = list(statisticsView(start_date, end_date, source))
+    view[5] = message
+    history_html, records = loadHistory()
+    return (*view, history_html, records, gr.update(value=False))
 
 
 theme = gr.themes.Base(
@@ -536,7 +560,7 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
 
         with gr.Column(scale=6, elem_classes="workbench"):
             with gr.Column(elem_classes="ui-block"):
-                gr.HTML('<div class="editor-tab">검사 영상 <span>P1~P3 미함침 영역은 빨간색</span></div>')
+                gr.HTML('<div class="editor-tab">검사 영상 <span>P1~P3 검출 영역은 빨간색</span></div>')
                 inspection_output = gr.Image(
                     label="마지막 검사 결과", type="numpy", interactive=False,
                     show_label=False, elem_classes="inspection-image",
@@ -572,6 +596,12 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
                                             value="all", label="검사 입력")
             statistics_refresh = gr.Button("조회", scale=0, min_width=80)
             statistics_export = gr.Button("CSV 내보내기", variant="primary", scale=0, min_width=135)
+        with gr.Accordion("전체 측정 이력 초기화", open=False):
+            gr.Markdown("모든 측정 기록, 저장된 원본·결과 이미지, CSV 내보내기 파일을 삭제합니다. "
+                        "현재 조회 필터와 관계없이 전체 이력에 적용됩니다.")
+            history_clear_confirm = gr.Checkbox(
+                label="전체 측정 이력과 저장 파일 삭제를 확인했습니다.", value=False)
+            history_clear_button = gr.Button("전체 이력 초기화", variant="stop", size="sm")
         statistics_summary = gr.HTML(summary_html({}))
         statistics_status = gr.Markdown("", elem_classes="statistics-status")
         statistics_csv = gr.File(label="CSV 다운로드", interactive=False, file_types=[".csv"], visible=False)
@@ -716,7 +746,8 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
                           statistics_page_label, statistics_status, statistics_csv, *statistics_details]
     statistics_event_options = dict(concurrency_id="history-statistics", concurrency_limit=1)
     statistics_button.click(showStatistics, inputs=statistics_filters,
-        outputs=[inspection_page, statistics_page, *statistics_outputs], api_name="statistics_open",
+        outputs=[inspection_page, statistics_page, *statistics_outputs, history_clear_confirm],
+        api_name="statistics_open",
         **statistics_event_options)
     statistics_back.click(lambda: (gr.update(visible=True), gr.update(visible=False)),
         outputs=[inspection_page, statistics_page], queue=False).then(
@@ -731,7 +762,11 @@ with gr.Blocks(title="Vision Workbench", analytics_enabled=False) as demo:
     statistics_next.click(nextStatistics, inputs=[*statistics_filters, statistics_page_number],
                            outputs=statistics_outputs, api_visibility="private", **statistics_event_options)
     statistics_export.click(statistics_controller.export, inputs=statistics_filters,
-        outputs=[statistics_csv, statistics_status], api_name="history_csv", **statistics_event_options)
+        outputs=[statistics_csv, statistics_status], api_name="history_csv",
+        concurrency_id="inspection", concurrency_limit=1)
+    history_clear_button.click(clearHistory, inputs=[history_clear_confirm, *statistics_filters],
+        outputs=[*statistics_outputs, history, history_records, history_clear_confirm],
+        api_visibility="private", concurrency_id="inspection", concurrency_limit=1)
     statistics_table.select(statistics_controller.detail, inputs=statistics_ids,
         outputs=statistics_details, api_name="history_detail", **statistics_event_options)
 
