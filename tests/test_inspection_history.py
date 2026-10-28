@@ -1,6 +1,7 @@
 """Archive durability, native images, time-zone filtering, and full CSV export."""
 
 import csv
+import cv2
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,11 +10,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import gradio as gr
 import numpy as np
 
 from src.inspection_history import InspectionHistoryStore, InspectionRecord
-from src.gui.statistics import StatisticsController
+from src.web.service import Workbench
 
 
 class InspectionHistoryTests(unittest.TestCase):
@@ -36,12 +36,15 @@ class InspectionHistoryTests(unittest.TestCase):
         self.assertEqual(restored, saved)
         np.testing.assert_array_equal(reopened.read_image(restored.original_path), self.original)
         np.testing.assert_array_equal(reopened.read_image(restored.result_path), self.result)
-        controller = StatisticsController(lambda: reopened)
-        event = gr.SelectData(None, {"index": [0, 2], "value": 90., "selected": True})
-        details = controller.detail([saved.record_id], event)
-        np.testing.assert_array_equal(details[3], self.result[2:6, 0:2])
-        np.testing.assert_array_equal(details[5], self.result[2:6, 6:8])
-        self.assertEqual(details[6], self.record.metadata)
+        workbench = Workbench.__new__(Workbench)
+        workbench.history = reopened
+        details = workbench.detail(saved.record_id)
+        for key, expected in (("p1", self.result[2:6, 0:2]),
+                              ("p3", self.result[2:6, 6:8])):
+            pixels = cv2.cvtColor(cv2.imdecode(np.frombuffer(details["images"][key], np.uint8),
+                                              cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+            np.testing.assert_array_equal(pixels, expected)
+        self.assertEqual(details["record"]["metadata"], self.record.metadata)
 
     def test_korean_day_filter_includes_last_second_and_handles_utc_timestamps(self):
         timestamps = ("2026-10-15T14:59:59+00:00", "2026-10-15T15:00:00+00:00",
@@ -67,15 +70,12 @@ class InspectionHistoryTests(unittest.TestCase):
         for index in range(55):
             self.store.save(replace(self.record, measured_at=(base + timedelta(seconds=index)).isoformat(),
                                     p1=float(index)), self.original, self.result)
-        controller = StatisticsController(lambda: self.store)
-        first = controller.query("2026-10-16", "2026-10-16")
-        second = controller.query("2026-10-16", "2026-10-16", page=2)
-        self.assertEqual((len(first[1]), len(second[1])), (50, 5))
-        self.assertIn("55건", first[0])
+        first = self.store.query("2026-10-16", "2026-10-16", limit=50)
+        second = self.store.query("2026-10-16", "2026-10-16", limit=50, offset=50)
+        self.assertEqual((len(first), len(second)), (50, 5))
+        self.assertEqual(self.store.summary("2026-10-16", "2026-10-16")["count"], 55)
         self.assertAlmostEqual(self.store.summary()["p1"], 27.)
-        download, message = controller.export("2026-10-16", "2026-10-16")
-        path = download["value"]
-        self.assertIn("CSV 생성 완료", message)
+        path = self.store.export_csv("2026-10-16", "2026-10-16")
         self.assertTrue(Path(path).read_bytes().startswith(b"\xef\xbb\xbf"))
         with Path(path).open(encoding="utf-8-sig", newline="") as stream:
             rows = list(csv.DictReader(stream))
@@ -83,11 +83,10 @@ class InspectionHistoryTests(unittest.TestCase):
         self.assertEqual(float(rows[0]["P1 함침율 (%)"]), 54.)
         self.assertEqual(rows[-1]["소요 시간 (초)"], "1.25")
         self.assertNotIn("판정", rows[0])
-        invalid = controller.query("bad date")
-        self.assertIn("조회 실패", invalid[5])
-        self.assertFalse(invalid[6]["visible"])
-        self.assertIsNone(invalid[6]["value"])
-        self.assertFalse(controller.export("bad date")[0]["visible"])
+        with self.assertRaises(ValueError):
+            self.store.query("bad date")
+        with self.assertRaises(ValueError):
+            self.store.export_csv("bad date")
 
     def test_identical_timestamps_use_unique_ids_and_stable_newest_order(self):
         saved = [self.store.save(replace(self.record, p1=float(index)), self.original, self.result)

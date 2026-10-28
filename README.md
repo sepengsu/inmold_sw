@@ -57,17 +57,18 @@ Windows에서 `COM1`~`COM6`이 조회됐으며, 이 프로그램은 위의 `COM3
 
 `Cam_test.py`는 모델을 불러오지 않고 카메라 영상을 계속 표시하는 독립 테스트 UI입니다.
 기본 카메라는 S/N `24346077`, 라이트는 `COM3` / `9600 bps`입니다.
+FastAPI가 제공하는 `/camera-test` HTML 화면이며 `uv sync --extra gui`로 설치합니다.
 
 ```powershell
 cd D:\Code\inmold_sw
 .\.venv\Scripts\python.exe Cam_test.py
 ```
 
-실행하면 [Cam_test](http://127.0.0.1:7860/)가 열리고 최신 카메라 영상을 약 0.2초마다 갱신합니다.
+실행하면 [Cam_test](http://127.0.0.1:7860/camera-test)가 열리고 최신 카메라 영상을 약 0.2초마다 갱신합니다.
 카메라 연결에 실패하거나 수신 스레드가 종료되면 3초 간격으로 재연결합니다.
 **카메라 연결 해제**를 직접 누르면 자동 재연결도 중지합니다.
-이미 Cam_test가 실행 중이면 같은 명령은 기존 화면을 열며, 서버를 중복 생성하지 않습니다.
-기존 `main.py` 검사 서버가 실행 중이면 먼저 종료해서 카메라·COM3·웹 포트를 해제하세요.
+`main.py` 검사 서버에서도 `/camera-test`를 열어 같은 진단 화면을 사용할 수 있습니다.
+별도 `Cam_test.py` 서버를 실행하려면 기존 서버가 사용하는 카메라·COM 포트·웹 포트를 먼저 해제하세요.
 
 - **카메라 연결 / 게인·FPS 설정**: 카메라 일련번호, 게인, 촬영 FPS를 변경하고 재연결합니다. 노출은 마지막으로 적용한 값을 유지합니다.
 - **카메라 노출 시간 (µs)**: 현재 저장값은 `200000 µs`(200 ms)입니다. **노출 적용 및 저장**을 누르면 실제 센서 노출을 변경하고 공통 `config/camera.yaml`에 저장합니다. 연결 중에는 재연결 없이 적용하며, 연결 해제 상태에서는 다음 연결에 사용합니다. 미리보기와 ROI 결과는 별도 밝기 배율 없이 카메라 영상을 표시합니다.
@@ -154,16 +155,18 @@ uv sync --extra model --extra gui
 ### RS232_test — 라이트 전용 테스트 UI
 
 `RS232_test.py`는 카메라·모델 없이 RS232 6채널 조명(CH1~CH6)을 테스트합니다.
-**`RS232_test.cmd`를 더블 클릭**하거나 다음 명령으로 실행합니다.
+`RS232_test.cmd`를 더블 클릭하거나 다음 명령으로 실행합니다.
 
 ```powershell
 .\.venv\Scripts\python.exe RS232_test.py
 ```
 
-기본 주소는 [RS232 테스트](http://127.0.0.1:7861/)입니다.
+기본 주소는 [RS232 테스트](http://127.0.0.1:7861/rs232-test)입니다.
+`main.py` 검사 서버에서도 `/rs232-test`를 열 수 있습니다.
 실행 시 포트를 자동으로 열지 않습니다. 포트(기본 `COM3`)와 전송 속도(기본 `9600 bps`)를
-선택한 뒤 **RS232 연결**을 누릅니다. Cam_test나 검사 GUI가 같은 COM 포트를 사용 중이면
-해당 앱에서 RS232 연결을 해제하거나 종료한 뒤 연결하세요.
+선택한 뒤 **RS232 연결**을 누릅니다. 별도 프로세스의 Cam_test나 검사 GUI가 같은 COM 포트를
+사용 중이면 그 프로세스에서 연결을 해제하거나 종료한 뒤 연결하세요. 같은 `main.py` 서버의
+검사·진단 페이지는 조명 연결을 공유합니다.
 
 - **CH1~CH6 적용**: 해당 슬라이더의 `0~100%`를 `0~255`로 변환해 한 채널만 전송합니다.
 - **6채널 적용**: CH1부터 CH6까지 차례로 전송하며 각각 ACK를 확인합니다.
@@ -178,7 +181,7 @@ ACK 실패 시 이후 채널 전송을 중단하고 성공한 채널까지 표�
 실행한 터미널의 `Ctrl+C`로 종료합니다.
 
 `--light-port`, `--baudrate`, `--host`, `--port`, `--no-browser` 옵션을 지원합니다.
-이미 같은 웹 주소에서 실행 중이면 기존 화면을 열고 서버를 중복 실행하지 않습니다.
+별도 서버를 실행할 때 같은 웹 포트가 사용 중이면 해당 서버를 먼저 종료하세요.
 
 ### 검사 GUI 실행
 
@@ -250,18 +253,20 @@ print(impregnation_pct(roi_detected, result["valid_mask"]))  # 유효 직물 픽
 사용한 대상 클래스는 UI 상태·측정 결과·이력 메타데이터에 표시됩니다.
 참고 프로젝트의 benchmark 모델은 대상이 아닙니다.
 현재 저장소의 `model/best_model.pt`는 3클래스 체크포인트입니다.
-`main.py`의 기본 체크포인트 경로는 `model/best.pt`이지만 현재 저장소에는
-해당 파일이 없으므로 실행 시 `--checkpoint model/best_model.pt`를 지정하세요.
+`main.py`의 기본 체크포인트는 `model/best_model.pt`입니다. 다른 모델을 쓰려면
+`--checkpoint`로 경로를 지정하세요.
 
 ## 검사 GUI
 
-루트의 GUI 템플릿을 `src/gui`와 `src/hardware`에 통합했습니다. Basler 카메라에서
+`main.py`는 FastAPI 서버와 HTML·JavaScript 화면(`src/web/static`)을 실행합니다.
+검사 엔진은 `src/inspection/engine.py`, 카메라·RS232 진단은 `src/diagnostics`, HTTP API는
+`src/web`에 있습니다. 추론·카메라·조명·이력 저장 로직은 기존 모듈을 사용합니다. Basler 카메라에서
 받은 최신 RGB 프레임을 메모리에서 grayscale로 변환한 다음 위 전처리·추론·복원
 흐름에 전달합니다. 체크포인트가 검출한 대상 픽셀은 빨간색으로 표시합니다.
 
 ```powershell
 uv sync --extra model --extra gui
-uv run --extra model --extra gui python main.py --checkpoint model/best_model.pt
+uv run --extra model --extra gui python main.py
 ```
 
 카메라 드라이버가 없다면 `scripts/setup_basler.ps1 -CheckOnly`로 확인하고,
@@ -300,8 +305,9 @@ ROI 검출과 CLAHE 설정은 유지하며, GUI 검사에서는 전체 ROI의 �
 추론합니다. 예측은 보정된 크롭의 원래 픽셀 크기로 되돌려 점수를 계산합니다.
 원본 RGB가 순수 검정 `(0, 0, 0)`인 픽셀은 분자와 분모에서 제외해 선택한
 모델의 검출 대상 픽셀 비율과 함침율을 계산합니다. P1~P3의 유효 픽셀 수는
-결과와 이력 메타데이터에 기록합니다. 전체 결과 영상은 세 회전 사각형 외를
-검정으로 표시하고, P1~P3 개별 결과도 보여 줍니다. 검출 경계 자체가
+결과와 이력 메타데이터에 기록합니다. 전체 결과 영상에는 원본을 유지하고
+P1~P3 측정 영역 박스와 예측 색상을 겹쳐 표시합니다. P1~P3 개별 결과도
+보여 줍니다. 검출 경계 자체가
 불규칙하거나 밝은 픽셀이 회전 사각형 안에 있으면
 회전 보정 후에도 가장자리가 일부 남을 수 있습니다. 공인인증 평가용 합격·불합격
 판정 기준은 아직 설정되지 않았습니다. UI의 **자동 ROI 설정**은 일반 모드의
@@ -318,7 +324,7 @@ Gabor 경계 검증용이며, 공인인증 평가 모드의 어두운 영역 임
 장비 없이 파일 검사 화면을 실행할 수 있습니다.
 
 ```powershell
-uv run --extra model --extra gui python main.py --no-camera --checkpoint model/best_model.pt
+uv run --extra model --extra gui python main.py --no-camera
 ```
 
 모델·전처리·추론 장치와 카메라는 실행 인자로 지정할 수 있습니다. 기본값은

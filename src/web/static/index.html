@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Vision Workbench</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main id="inspection-page" class="main-grid">
+    <aside class="side">
+      <nav class="tool-nav"><a href="/camera-test">카메라 테스트</a><a href="/rs232-test">RS232 테스트</a></nav>
+      <section class="ui-block">
+        <div class="section-label">검사 모드</div>
+        <label class="choice"><input type="radio" name="mode" value="normal" checked> 일반 모드</label>
+        <label class="choice"><input type="radio" name="mode" value="certification"> 공인인증 평가 모드</label>
+        <div id="mode-hint" class="hint"></div>
+      </section>
+      <section class="ui-block">
+        <div class="section-label">CAPTURE <span>CAM-01</span></div>
+        <div class="image-box preview"><span class="image-placeholder">카메라 영상 대기 중</span><img id="camera-preview" alt="카메라 프리뷰" hidden></div>
+        <button id="reconnect">카메라 연결 / 재시도</button>
+        <label for="pixel-format">카메라 촬영 형식</label>
+        <select id="pixel-format"><option value="Mono8">GrayScale · Mono8</option><option value="BayerGR12">RGB Color · BayerGR12</option></select>
+        <button id="apply-pixel-format">촬영 형식 적용 및 저장</button>
+        <p id="pixel-format-message" class="hint">형식 변경 시 카메라를 재연결합니다.</p>
+        <label for="source">검사 입력</label>
+        <select id="source"><option value="camera">실시간 카메라</option><option value="file">이미지 파일</option></select>
+        <input id="file-input" type="file" accept="image/*" hidden>
+        <div id="file-preview-box" class="image-box preview" hidden><span class="image-placeholder">이미지를 표시할 수 없습니다.</span><img id="file-preview" alt="검사할 이미지" hidden></div>
+      </section>
+      <section class="ui-block">
+        <div class="section-label">LIGHTING</div>
+        <button id="open-lighting">4개 조명 설정 · 평균 0%</button>
+        <div class="hint">4개 조명 · 6채널 연동 제어<br>면조명 CH1+2 / CH5+6 · 바 조명 CH3 / CH4</div>
+      </section>
+      <section class="ui-block">
+        <div class="section-label">자동 ROI 설정</div>
+        <label for="roi-level">ROI 검증 강도</label>
+        <select id="roi-level"><option value="low">낮음 · 완화</option><option value="medium">중간</option><option value="high">높음 · 엄격</option><option value="custom" disabled>세부 조정</option></select>
+        <label for="roi-threshold">ROI 기준 · 연관 검증 자동 조절 (0~1)</label>
+        <div class="slider-row"><input id="roi-threshold" type="range" min="0" max="1" step="0.01" value="0.25"><output id="roi-value">0.25</output></div>
+        <div id="roi-details" class="hint"></div>
+        <div class="hint">낮음은 완화, 높음은 엄격한 검증입니다. 저장 후 다시 측정하세요.</div>
+        <div class="button-row"><button id="save-roi">ROI 기준 적용 및 저장</button><button id="load-roi">ROI 기준 불러오기</button></div>
+        <p id="roi-message" class="hint" role="status"></p>
+      </section>
+      <section class="ui-block"><div id="measurement-info"></div></section>
+    </aside>
+    <section class="workbench">
+      <div class="ui-block workbench-content">
+        <div class="editor-tab">검사 영상 <span>P1~P3 측정 영역 표시</span></div>
+        <div class="image-box inspection-image"><span class="image-placeholder">측정 후 결과 영상이 표시됩니다.</span><img id="result-image" alt="마지막 검사 결과" hidden></div>
+        <div class="region-images">
+          <figure class="p1"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p1-image" alt="P1" hidden></div><figcaption id="p1-label">P1 · 왼쪽 · 256×512</figcaption></figure>
+          <figure class="p2"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p2-image" alt="P2" hidden></div><figcaption id="p2-label">P2 · 가운데 · 256×512</figcaption></figure>
+          <figure class="p3"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p3-image" alt="P3" hidden></div><figcaption id="p3-label">P3 · 오른쪽 · 256×512</figcaption></figure>
+        </div>
+        <button id="inspect" class="primary">▶ &nbsp;측정 시작</button>
+      </div>
+    </section>
+    <aside class="results">
+      <section class="ui-block"><div class="section-label">INSPECTION RESULT <span>LAST RUN</span></div><div id="result"><div class="result-number">--.--<small>%</small></div><div class="hint">검사 입력을 선택하고 측정을 시작하세요.</div></div></section>
+      <section class="ui-block"><div class="history-header"><div class="section-label">HISTORY <span>P1~P3 함침율</span></div><button id="open-statistics">통계 보기</button></div><div id="history"></div></section>
+      <section class="ui-block"><div class="section-label">SYSTEM STATUS</div><div id="system-status" class="system-list"></div></section>
+    </aside>
+  </main>
+  <main id="statistics-page" class="statistics-page" hidden>
+    <div class="statistics-header"><div><div class="section-label">MEASUREMENT ARCHIVE</div><h1>통계 보기</h1><p>저장된 측정값과 결과 이미지를 기간별로 확인하세요.</p></div><button id="back-inspection">검사 화면으로</button></div>
+    <div class="statistics-filters"><label>시작일 <input id="statistics-start" type="date"></label><label>종료일 <input id="statistics-end" type="date"></label><label>검사 입력 <select id="statistics-source"><option value="all">전체 입력</option><option value="camera">카메라</option><option value="file">이미지 파일</option></select></label><button id="statistics-refresh">조회</button><button id="statistics-export" class="primary">CSV 내보내기</button></div>
+    <details class="clear-box"><summary>전체 측정 이력 초기화</summary><p>모든 측정 기록, 저장된 원본·결과 이미지, CSV 내보내기 파일을 삭제합니다. 현재 조회 필터와 관계없이 전체 이력에 적용됩니다.</p><label><input id="clear-confirm" type="checkbox"> 전체 측정 이력과 저장 파일 삭제를 확인했습니다.</label><button id="clear-history" class="danger">전체 이력 초기화</button></details>
+    <div id="statistics-summary"></div><p id="statistics-message" role="status"></p>
+    <div class="table-scroll"><table><thead><tr><th>측정 시각</th><th>입력</th><th>P1 (%)</th><th>P2 (%)</th><th>P3 (%)</th><th>평균 (%)</th><th>소요 시간 (초)</th></tr></thead><tbody id="statistics-rows"></tbody></table></div>
+    <div class="pagination"><button id="statistics-previous">이전</button><span id="statistics-page-label">1 / 1 페이지</span><button id="statistics-next">다음</button></div>
+    <section class="statistics-detail"><div id="statistics-detail-text">측정 항목을 선택하세요.</div><div class="detail-images"><figure><figcaption>저장 원본</figcaption><img id="detail-original" alt="저장 원본" hidden></figure><figure><figcaption>저장 결과</figcaption><img id="detail-result" alt="저장 결과" hidden></figure></div><div class="detail-images three"><figure><figcaption>P1</figcaption><img id="detail-p1" alt="P1" hidden></figure><figure><figcaption>P2</figcaption><img id="detail-p2" alt="P2" hidden></figure><figure><figcaption>P3</figcaption><img id="detail-p3" alt="P3" hidden></figure></div><details><summary>촬영·검사 조건</summary><pre id="detail-metadata"></pre></details></section>
+  </main>
+  <div id="lighting-modal" class="modal" hidden><div class="lighting-dialog"><div class="lighting-modal-header"><div><b>조명 제어</b><span>4 LIGHTS / 6 CHANNELS</span></div><p>적용 버튼을 누르면 해당 조명에 전송합니다. 조명값 저장·불러오기는 화면 설정만 처리하며 실제 광량을 변경하지 않습니다.</p></div><div class="button-row"><button id="save-lighting">조명값 저장</button><button id="load-lighting">저장값 불러오기</button></div><p id="lighting-config-message" role="status"></p><div id="lighting-groups" class="lighting-group-grid"></div><div class="button-row"><button id="apply-lighting" class="primary">설정 적용 후 닫기</button><button id="close-lighting">닫기</button></div><p id="lighting-message" role="status"></p><div class="hint">통신 설정: COM3 · 9600 bps · 8N1 · 출력 0–255</div></div></div>
+</body>
+</html>

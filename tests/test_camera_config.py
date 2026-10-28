@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import yaml
 
-from Cam_test import CamTestController
+from src.diagnostics.camera import CamTestController
 from src.hardware.camera_config import (DEFAULT_CAMERA_CONFIG, load_camera_settings,
                                         save_camera_exposure, save_camera_pixel_format)
 from src.hardware.camera_control import BaslerCameraSettings, CameraControl, CameraError, CameraStatus
@@ -75,7 +75,7 @@ class CameraConfigTests(unittest.TestCase):
 
     def test_camera_test_initial_settings_come_from_config(self):
         self.path.write_text("exposure_us: 16000\n", encoding="utf-8")
-        with patch("Cam_test.CameraControl") as camera:
+        with patch("src.diagnostics.camera.CameraControl") as camera:
             controller = CamTestController("24346077", camera_config=self.path)
         self.assertEqual(controller.settings.exposure_us, 16000)
         camera.assert_called_once_with("24346077", settings=controller.settings)
@@ -83,7 +83,7 @@ class CameraConfigTests(unittest.TestCase):
 
     def test_explicit_camera_settings_take_precedence(self):
         settings = BaslerCameraSettings(exposure_us=7000)
-        with patch("Cam_test.CameraControl"):
+        with patch("src.diagnostics.camera.CameraControl"):
             controller = CamTestController(settings=settings, camera_config=self.path)
         self.assertIs(controller.settings, settings)
         self.assertEqual(load_camera_settings(self.path).exposure_us, 10000)
@@ -111,7 +111,7 @@ class CameraConfigTests(unittest.TestCase):
             running=True, connected=False, description="Test camera", serial_number="24346077",
             frames_received=0, last_frame_at=None, error=None,
         )
-        with patch.object(controller.camera, "stop"), patch("Cam_test.CameraControl", return_value=replacement_camera):
+        with patch.object(controller.camera, "stop"), patch("src.diagnostics.camera.CameraControl", return_value=replacement_camera):
             result = controller.apply_camera("24346077", 0, 10)
         self.assertEqual(controller.settings.exposure_us, 12000)
         self.assertIn("12000 µs", result)
@@ -134,7 +134,7 @@ class CameraConfigTests(unittest.TestCase):
             for value in (None, True, "10000", 0, -1, float("nan"), float("inf"), 10 ** 400):
                 with self.subTest(value=value):
                     result = controller.apply_exposure(value)
-                    self.assertEqual(result[0], {"__type__": "update"})
+                    self.assertEqual(result[0], None)
                     self.assertIn("적용 실패", result[2])
         apply.assert_not_called()
         self.assertEqual(self.path.read_bytes(), original)
@@ -145,7 +145,7 @@ class CameraConfigTests(unittest.TestCase):
         original = self.path.read_bytes()
         with patch.object(controller.camera, "set_exposure_us", side_effect=CameraError("device rejected exposure")):
             value, _, message = controller.apply_exposure(12000)
-        self.assertEqual(value, {"__type__": "update"})
+        self.assertEqual(value, None)
         self.assertIn("적용 실패", message)
         self.assertEqual(controller.settings.exposure_us, 10000)
         self.assertEqual(self.path.read_bytes(), original)
@@ -172,7 +172,7 @@ class CameraConfigTests(unittest.TestCase):
             self.assertEqual(controller.settings.exposure_us, 10000)
             self.path.write_text("exposure_us: invalid\n", encoding="utf-8")
             value, message = controller.load_exposure()
-            self.assertEqual(value, {"__type__": "update"})
+            self.assertEqual(value, None)
             self.assertIn("불러오기 실패", message)
         apply.assert_not_called()
 
@@ -225,21 +225,6 @@ class CameraConfigTests(unittest.TestCase):
         for channel in range(3):
             np.testing.assert_array_equal(frame.display_rgb[:, :, channel], frame.raw_array)
         camera._converter.Convert.assert_not_called()
-
-    def test_main_ui_saves_grayscale_choice_without_camera_connection(self):
-        from src.gui import app
-
-        camera = CameraControl()
-        with patch.multiple(app, camera_control=camera, camera_enabled=False,
-                            active_camera_config_path=self.path), \
-                patch.object(app, "renderStatus", return_value="status"), \
-                patch.object(camera, "start") as start:
-            status, message = app.applyCameraPixelFormat("Mono8")
-        self.assertEqual(status, "status")
-        self.assertIn("저장 완료", message)
-        self.assertEqual(load_camera_settings(self.path).pixel_format, "Mono8")
-        self.assertEqual(camera.settings.pixel_format, "Mono8")
-        start.assert_not_called()
 
     def test_connected_camera_updates_sensor_without_reconnecting(self):
         camera = CameraControl()
@@ -313,42 +298,6 @@ class CameraConfigTests(unittest.TestCase):
         set_enum.assert_any_call(device, "PixelFormat", "BayerGR12")
         set_enum.assert_any_call(device, "ExposureAuto", "Off", required=False)
         set_number.assert_any_call(device, ("ExposureTime", "ExposureTimeAbs"), 10000)
-
-    def test_main_ui_passes_config_exposure_to_camera_on_startup(self):
-        from src.gui import app
-
-        self.path.write_text("exposure_us: 18000\n", encoding="utf-8")
-        camera = Mock()
-        with patch.multiple(app, camera_control=Mock(), inspection_engine=None, model_error=None, camera_enabled=False), \
-                patch.object(app, "CameraControl", return_value=camera) as factory, \
-                patch.object(app, "connect_light"), patch.object(app, "disconnect_light"), \
-                patch.object(app.demo, "launch") as launch, \
-                patch("src.gui.inspection.InspectionEngine"):
-            app.launchApp(camera_serial="24346077", camera_config_path=self.path, inbrowser=False)
-        self.assertEqual(factory.call_args.kwargs["settings"].exposure_us, 18000)
-        self.assertEqual(factory.call_args.kwargs["serial_number"], "24346077")
-        camera.start.assert_called_once()
-        camera.stop.assert_called_once()
-        launch.assert_called_once()
-
-    def test_file_only_ui_does_not_open_camera_or_lighting_port(self):
-        from src.gui import app
-
-        camera = Mock()
-        camera.settings.exposure_us = 10000
-        with patch.multiple(app, camera_control=Mock(), inspection_engine=None,
-                            model_error=None, camera_enabled=False, roi_config_path=None), \
-                patch.object(app, "CameraControl", return_value=camera), \
-                patch.object(app, "connect_light") as connect_light, \
-                patch.object(app, "disconnect_light"), \
-                patch.object(app.demo, "launch"), \
-                patch("src.gui.inspection.InspectionEngine"):
-            app.launchApp(use_camera=False, inbrowser=False)
-            with patch.object(app, "inspection_engine", None):
-                self.assertIn("LIGHTING: 파일 검사 모드 · 연결하지 않음", app.renderStatus())
-        camera.start.assert_not_called()
-        connect_light.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()

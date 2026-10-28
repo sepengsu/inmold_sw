@@ -9,7 +9,7 @@ from time import monotonic
 
 import numpy as np
 
-from src.gui.inspection import InspectionEngine, annotate_frame, plan_measurement_regions, score_regions
+from src.inspection.engine import InspectionEngine, annotate_frame, plan_measurement_regions, score_regions
 from src.preprocess import preprocess_array, preprocess_roi_array
 
 
@@ -69,7 +69,7 @@ class GuiIntegrationTests(unittest.TestCase):
                 frame[y + half * 256:y + (half + 1) * 256, x:x + 256] = values[index * 2 + half]
         original = frame.copy()
         with patch("src.preprocess.pipeline.tile_image", side_effect=AssertionError("whole ROI tiled")), patch(
-            "src.gui.inspection.predict_tiles", side_effect=lambda model, patches, **kwargs: [
+            "src.inspection.engine.predict_tiles", side_effect=lambda model, patches, **kwargs: [
             tile.astype(np.float32) / 255 for tile in patches
         ]) as predict:
             result = engine.inspect(frame)
@@ -112,7 +112,7 @@ class GuiIntegrationTests(unittest.TestCase):
         engine = InspectionEngine.__new__(InspectionEngine)
         engine.config = {"roi": {"x": 0, "y": 0, "width": 1200, "height": 800},
                          "clahe": {"enabled": False}}
-        with patch("src.gui.inspection.predict_tiles") as predict:
+        with patch("src.inspection.engine.predict_tiles") as predict:
             with self.assertRaisesRegex(ValueError, "크기가 부족"):
                 engine.inspect(np.full((800, 1200, 3), 50, dtype=np.uint8))
         predict.assert_not_called()
@@ -158,179 +158,3 @@ class CameraFrameTests(unittest.TestCase):
         camera.stop()
         self.assertIsNone(camera._frame)
         self.assertFalse(camera.get_status().connected)
-
-
-class WorkbenchTests(unittest.TestCase):
-    def setUp(self):
-        from src.gui import app
-
-        self.app = app
-        from src.inspection_history import InspectionHistoryStore
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        store_patch = patch.object(app, "history_store", InspectionHistoryStore(folder.name))
-        store_patch.start()
-        self.addCleanup(store_patch.stop)
-        self.frame = np.zeros((8, 9, 3), dtype=np.uint8)
-        self.inference = SimpleNamespace(
-            scores=(95.0, 80.0, 72.0), average=82.3,
-            annotated_frame=self.frame, crops=(self.frame,) * 3,
-        )
-
-    def test_file_inspection_saves_results_without_pass_fail_judgment(self):
-        engine = SimpleNamespace(inspect=lambda frame: self.inference)
-        with patch.object(self.app, "inspection_engine", engine), patch.object(
-            self.app.camera_control, "get_latest_frame", side_effect=AssertionError("camera used")
-        ):
-            first = self.app.inspectCamera([], "file", self.frame)
-            second = self.app.inspectCamera(first[2], "file", self.frame)
-        for output in (first, second):
-            for forbidden in ("PASS", "FAIL", "CHECK", "합격 기준"):
-                self.assertNotIn(forbidden, output[0] + output[1])
-            self.assertIn("이력 자동 저장 완료", output[0])
-        self.assertIn("82.30", first[0])
-        self.assertIn("P1~P3 평균 함침율", first[0])
-        self.assertIn("256×512px", first[0])
-        self.assertEqual(second[2][0].source, "file")
-        self.assertTrue(second[2][0].measured_at)
-        self.assertIs(second[3], self.frame)
-        self.assertEqual(self.app.history_store.summary()["count"], 2)
-        restored = self.app.loadHistory()[1]
-        self.assertEqual([r.record_id for r in restored], [r.record_id for r in second[2]])
-
-    def test_three_class_measurement_discloses_combined_positive_classes(self):
-        engine = SimpleNamespace(
-            inspect=lambda frame: self.inference,
-            checkpoint={"threshold": 0.5, "positive_classes": ("Exposure", "Weldline")},
-        )
-        with patch.object(self.app, "inspection_engine", engine):
-            result = self.app.inspectCamera([], "file", self.frame)
-        self.assertIn("대상 픽셀: Exposure + Weldline", result[0])
-        self.assertEqual(result[2][0].metadata["model"]["positive_classes"],
-                         ["Exposure", "Weldline"])
-
-    def test_certification_mode_is_shown_and_saved_with_measurement(self):
-        self.inference.valid_pixels = (800, 820, 830)
-        engine = SimpleNamespace(inspect=Mock(side_effect=AssertionError("normal path used")),
-                                 inspect_certification=Mock(return_value=self.inference))
-        with patch.object(self.app, "inspection_engine", engine):
-            result = self.app.inspectCamera([], "file", self.frame,
-                                            inspection_mode="certification")
-        engine.inspect_certification.assert_called_once_with(self.frame)
-        self.assertIn("공인인증 평가 모드", result[0])
-        self.assertIn("256×256px", result[0])
-        self.assertIn("유효 픽셀 · P1 800", result[0])
-        self.assertIn("공인인증 평가 모드", result[1])
-        self.assertEqual(result[2][0].metadata["conditions"]["inspection_mode"], "certification")
-        self.assertEqual(result[2][0].metadata["conditions"]["valid_pixels"], [800, 820, 830])
-        self.assertEqual(self.app.history_store.query(limit=1)[0].metadata["conditions"]["inspection_mode"],
-                         "certification")
-
-    def test_unknown_inspection_mode_stops_before_inference(self):
-        inspect = Mock(side_effect=AssertionError("inference used"))
-        with patch.object(self.app, "inspection_engine", SimpleNamespace(inspect=inspect)):
-            result = self.app.inspectCamera([], "file", self.frame, inspection_mode="unknown")
-        self.assertIn("검사 모드를 선택하세요", result[0])
-        inspect.assert_not_called()
-
-    def test_missing_input_and_model_error_do_not_add_history(self):
-        records = [self.app.InspectionRecord(90, 91, 92)]
-        missing = self.app.inspectCamera(records, "file", None)
-        self.assertIn("ERROR", missing[0])
-        self.assertIs(missing[2], records)
-        self.assertEqual(missing[3:], (None,) * 4)
-        with patch.object(self.app, "inspection_engine", None), patch.object(
-            self.app, "model_error", "<missing checkpoint>"
-        ):
-            failed = self.app.inspectCamera(records, "file", self.frame)
-        self.assertIn("&lt;missing checkpoint&gt;", failed[0])
-        self.assertIs(failed[2], records)
-
-    def test_elapsed_time_includes_frame_acquisition_and_is_saved_per_measurement(self):
-        clock = [100.0]
-
-        def acquire_frame():
-            clock[0] += .25
-            return self.frame
-
-        def inspect(frame):
-            clock[0] += 1.0
-            return self.inference
-
-        engine = SimpleNamespace(inspect=inspect)
-        with patch.object(self.app, "monotonic", side_effect=lambda: clock[0]), patch.object(
-            self.app, "inspection_engine", engine
-        ), patch.object(self.app.camera_control, "get_latest_frame", side_effect=acquire_frame):
-            first = self.app.inspectCamera([], "camera")
-            clock[0] += 60  # Idle time between runs must not enter either duration.
-            second = self.app.inspectCamera(first[2], "file", self.frame)
-        self.assertEqual(first[2][0].elapsed_seconds, 1.25)
-        self.assertEqual([r.elapsed_seconds for r in second[2]], [1.0, 1.25])
-        self.assertIn("측정 소요 시간 1.250초", first[0])
-        self.assertIn("측정 소요 시간 1.000초", second[0])
-        self.assertIn("소요 시간 1.000초", second[1])
-        self.assertIn("소요 시간 1.250초", second[1])
-        self.assertLess(second[1].index('class="history-duration">소요 시간 1.000초'),
-                        second[1].index('class="history-duration">소요 시간 1.250초'))
-
-    def test_invalid_source_is_rejected_before_inference(self):
-        output = self.app.inspectCamera([], "invalid", self.frame)
-        self.assertIn("ERROR", output[0])
-        self.assertEqual(output[2], [])
-
-    def test_history_retains_five_latest_measurements(self):
-        records = []
-        with patch.object(self.app, "inspection_engine", SimpleNamespace(inspect=lambda frame: self.inference)):
-            for p1 in range(70, 77):
-                self.inference.scores = (float(p1), 80., 72.)
-                records = self.app.inspectCamera(records, "file", self.frame)[2]
-        self.assertEqual([record.p1 for record in records], [76, 75, 74, 73, 72])
-        self.assertEqual(self.app.history_store.summary()["count"], 7)
-
-    def test_save_failure_keeps_measurement_visible_and_marks_it_unsaved(self):
-        with patch.object(self.app, "inspection_engine", SimpleNamespace(inspect=lambda frame: self.inference)), patch.object(
-            self.app.history_store, "save", side_effect=OSError("disk full")
-        ):
-            result = self.app.inspectCamera([], "file", self.frame)
-        self.assertIn("이력 저장 실패: disk full", result[0])
-        self.assertIn("미저장", result[1])
-        self.assertIs(result[3], self.frame)
-        self.assertEqual(self.app.history_store.summary()["count"], 0)
-
-    def test_statistics_button_and_removed_threshold_controls(self):
-        labels = [getattr(block, "label", "") for block in self.app.demo.blocks.values()]
-        self.assertNotIn("최소 함침율 합격 기준 (%)", labels)
-        values = [getattr(block, "value", None) for block in self.app.demo.blocks.values()]
-        self.assertIn("통계 보기", values)
-        self.assertIn("CSV 내보내기", values)
-        self.assertIn("전체 이력 초기화", values)
-
-    def test_statistics_history_clear_requires_confirmation_and_refreshes(self):
-        with patch.object(self.app, "inspection_engine",
-                          SimpleNamespace(inspect=lambda frame: self.inference)):
-            self.app.inspectCamera([], "file", self.frame)
-        export = self.app.history_store.export_csv()
-        declined = self.app.clearHistory(False)
-        self.assertIn("삭제 확인", declined[5])
-        self.assertEqual(self.app.history_store.summary()["count"], 1)
-        self.assertTrue(export.exists())
-
-        cleared = self.app.clearHistory(True)
-        self.assertIn("1건", cleared[5])
-        self.assertEqual(cleared[1], [])
-        self.assertEqual(cleared[15], [])
-        self.assertFalse(cleared[16]["value"])
-        self.assertEqual(self.app.history_store.summary()["count"], 0)
-        self.assertFalse(export.exists())
-        self.assertEqual(cleared[14], self.app.renderHistory([]))
-
-    def test_light_failure_leaves_dialog_open_and_close_does_not_send(self):
-        with patch.object(self.app, "set_light_groups_brightness", side_effect=self.app.LightCommunicationError("no ACK")):
-            output = self.app.applyLighting(10, 20, 30, 40)
-        self.assertTrue(output[2]["visible"])
-        self.assertIn("no ACK", output[3])
-        self.assertFalse(self.app.hideLighting()["visible"])
-
-
-if __name__ == "__main__":
-    unittest.main()

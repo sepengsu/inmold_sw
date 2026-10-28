@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import cv2
 
-from Cam_test import CamTestController, build_ui
+from src.diagnostics.camera import CamTestController
 from src.hardware.camera_control import CameraFrame, CameraStatus
 from src.hardware.led_control import LightCommunicationError, LightConnectionStatus, build_brightness_packet
 from src.preprocess.auto_roi import AutoRoiResult
@@ -110,29 +110,6 @@ class CamTestTests(unittest.TestCase):
         self.light.connect.assert_called_once()
         self.light.send.assert_not_called()
 
-    def test_group_buttons_route_to_same_physical_fixtures_as_main_ui(self):
-        with patch("Cam_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn.fn for fn in demo.fns.values()}
-        expected = {
-            1: (b"\x021026\x03", b"\x022026\x03"),
-            2: (b"\x023026\x03",),
-            3: (b"\x024026\x03",),
-            4: (b"\x025026\x03", b"\x026026\x03"),
-        }
-        for group, packets in expected.items():
-            with self.subTest(group=group):
-                self.light.send.reset_mock()
-                result = callbacks[f"light_group_{group}"](10, "COM3", 9600)
-                self.light.send.assert_called_once()
-                self.assertEqual(tuple(item.packet for item in self.light.send.call_args.args[0]), packets)
-                self.assertIn("ACK 확인", result[0])
-                self.assertIn("최근 ACK 확인", result[group])
-                for index, note in enumerate(result[1:], 1):
-                    if index != group:
-                        self.assertEqual(note, {"__type__": "update"})
-        self.camera.start.assert_not_called()
-
     def test_group_apply_all_expands_four_values_to_six_channels(self):
         result = self.controller.send_light_groups((10, 20, 30, 40), "COM3", 9600)
         sent = self.light.send.call_args.args[0]
@@ -161,46 +138,6 @@ class CamTestTests(unittest.TestCase):
         self.assertIn("CH5 40%", notes[3])
         self.assertNotIn("CH6 40%", notes[3])
 
-    def test_all_off_writes_six_channels_and_resets_four_group_sliders(self):
-        with patch("Cam_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callback = next(fn.fn for fn in demo.fns.values() if fn.api_name == "light_off")
-        result = callback("COM3", 9600)
-        self.assertEqual(result[-4:], (0, 0, 0, 0))
-        self.assertEqual([(item.channel, item.percent) for item in self.light.send.call_args.args[0]],
-                         [(channel, 0) for channel in range(1, 7)])
-        self.assertIn("CH6", result[0])
-
-    def test_partial_off_only_resets_fully_acknowledged_fixtures(self):
-        self.light.send.side_effect = LightCommunicationError(
-            "CH6: no ACK received", acknowledged=tuple(build_brightness_packet(channel, 0) for channel in range(1, 6)),
-        )
-        result = self.controller.turn_off_lights("COM3", 9600)
-        self.assertEqual(result[-4:-1], (0, 0, 0))
-        self.assertEqual(result[-1], {"__type__": "update"})
-        self.assertIn("부분 적용", result[4])
-        self.assertNotIn("CH6 0%", result[4])
-
-    def test_building_light_group_ui_never_transmits(self):
-        with patch("Cam_test.list_ports.comports", return_value=[]):
-            build_ui(self.controller)
-        self.light.send.assert_not_called()
-        self.light.connect.assert_not_called()
-
-    def test_exposure_replaces_display_gain_in_ui_and_preview_api(self):
-        with patch("Cam_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        components = demo.config["components"]
-        labels = [component["props"].get("label", "") for component in components]
-        self.assertIn("카메라 노출 시간 (µs)", labels)
-        self.assertFalse(any("밝기 배율" in label for label in labels))
-        callbacks = {fn.api_name: fn for fn in demo.fns.values()}
-        self.assertEqual(len(callbacks["preview"].inputs), 1)
-        self.assertEqual(len(callbacks["extract_roi"].inputs), 0)
-        self.assertEqual(callbacks["exposure_apply"].fn, self.controller.apply_exposure)
-        self.assertEqual(callbacks["exposure_load"].fn, self.controller.load_exposure)
-        self.camera.set_exposure_us.assert_not_called()
-
     def test_roi_extraction_does_not_block_the_live_preview(self):
         started, release = Event(), Event()
         detected = AutoRoiResult(np.ones((3, 4), bool), {
@@ -215,7 +152,7 @@ class CamTestTests(unittest.TestCase):
                 raise RuntimeError("test worker did not release detector")
             return detected
 
-        with patch("Cam_test.detect_auto_roi", side_effect=slow_detector), ThreadPoolExecutor(2) as pool:
+        with patch("src.diagnostics.camera.detect_auto_roi", side_effect=slow_detector), ThreadPoolExecutor(2) as pool:
             extraction = pool.submit(self.controller.extract_roi)
             try:
                 self.assertTrue(started.wait(1))
@@ -234,7 +171,7 @@ class CamTestTests(unittest.TestCase):
             "quality_score": .8, "needs_review_reason": "",
             "top_y": [0] * 4, "bottom_y_exclusive": [3] * 4,
         })
-        with patch("Cam_test.detect_auto_roi", return_value=detected):
+        with patch("src.diagnostics.camera.detect_auto_roi", return_value=detected):
             image, _ = self.controller.extract_roi()
         np.testing.assert_array_equal(image, np.where(mask[:, :, None], self.rgb, 0))
 
@@ -246,12 +183,12 @@ class CamTestTests(unittest.TestCase):
             self.camera.get_latest_frame.return_value = rgb
             first, message = self.controller.save_image()
             second, _ = self.controller.save_image()
-            color_path, mono_path = map(Path, first["value"])
-            self.assertTrue(first["visible"])
+            color_path, mono_path = map(Path, first)
+            self.assertIsNotNone(first)
             self.assertTrue(color_path.is_file())
             self.assertTrue(mono_path.is_file())
-            self.assertEqual(len(first["value"]), 2)
-            self.assertTrue(set(first["value"]).isdisjoint(second["value"]))
+            self.assertEqual(len(first), 2)
+            self.assertTrue(set(first).isdisjoint(second))
             self.assertEqual(color_path.name.removesuffix("_Color.png"),
                              mono_path.name.removesuffix("_Mono.png"))
             self.assertIn("4 × 3px", message)
@@ -275,8 +212,7 @@ class CamTestTests(unittest.TestCase):
                     frames_received=5, last_frame_at=last_frame_at, error=None,
                 )
                 download, message = self.controller.save_image()
-                self.assertIsNone(download["value"])
-                self.assertFalse(download["visible"])
+                self.assertIsNone(download)
                 self.assertIn("저장 실패", message)
             self.assertFalse(self.controller.capture_dir.exists())
 
@@ -284,19 +220,19 @@ class CamTestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder) / "이미지 저장"
             first, _ = self.controller.save_image("Case01_시편01")
-            paths = list(map(Path, first["value"]))
+            paths = list(map(Path, first))
             original_bytes = [path.read_bytes() for path in paths]
             self.camera.get_latest_frame.return_value[:] = 0
             second, _ = self.controller.save_image("Case01_시편01.png")
             third, _ = self.controller.save_image("Case01_시편01.PNG")
             self.assertEqual([path.name for path in paths],
                              ["Case01_시편01_Color.png", "Case01_시편01_Mono.png"])
-            self.assertEqual([Path(path).name for path in second["value"]],
+            self.assertEqual([Path(path).name for path in second],
                              ["Case01_시편01_1_Color.png", "Case01_시편01_1_Mono.png"])
-            self.assertEqual([Path(path).name for path in third["value"]],
+            self.assertEqual([Path(path).name for path in third],
                              ["Case01_시편01_2_Color.png", "Case01_시편01_2_Mono.png"])
             self.assertEqual([path.read_bytes() for path in paths], original_bytes)
-            for path in second["value"]:
+            for path in second:
                 saved = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
                 self.assertTrue((saved == 0).all())
 
@@ -304,15 +240,15 @@ class CamTestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder)
             first, _ = self.controller.save_image("시편")
-            color_path, mono_path = map(Path, first["value"])
+            color_path, mono_path = map(Path, first)
             original_mono = mono_path.read_bytes()
             color_path.unlink()
             second, _ = self.controller.save_image("시편")
-            self.assertEqual([Path(path).name for path in second["value"]],
+            self.assertEqual([Path(path).name for path in second],
                              ["시편_1_Color.png", "시편_1_Mono.png"])
             self.assertFalse(color_path.exists())
             self.assertEqual(mono_path.read_bytes(), original_mono)
-            self.assertTrue(all(Path(path).is_file() for path in second["value"]))
+            self.assertTrue(all(Path(path).is_file() for path in second))
 
     def test_named_image_rejects_paths_and_invalid_windows_names(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -321,8 +257,7 @@ class CamTestTests(unittest.TestCase):
                          "CON.png", "NUL", "LPT1.png", "line\nbreak", "case.", ".png", None):
                 with self.subTest(name=name):
                     download, message = self.controller.save_image(name)
-                    self.assertFalse(download["visible"])
-                    self.assertIsNone(download["value"])
+                    self.assertIsNone(download)
                     self.assertIn("저장 실패", message)
             self.assertFalse(self.controller.capture_dir.exists())
 
@@ -330,10 +265,9 @@ class CamTestTests(unittest.TestCase):
         for completed_files in (0, 1):
             with self.subTest(completed_files=completed_files), tempfile.TemporaryDirectory() as folder:
                 self.controller.capture_dir = Path(folder)
-                with patch("Cam_test.os.fsync", side_effect=[None] * completed_files + [OSError("disk full")]):
+                with patch("src.diagnostics.camera.os.fsync", side_effect=[None] * completed_files + [OSError("disk full")]):
                     download, message = self.controller.save_image()
-                self.assertIsNone(download["value"])
-                self.assertFalse(download["visible"])
+                self.assertIsNone(download)
                 self.assertIn("disk full", message)
                 self.assertEqual(list(Path(folder).rglob("*.png")), [])
 
@@ -345,10 +279,9 @@ class CamTestTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder) / "captures"
-            with patch("Cam_test.cv2.imencode", side_effect=fail_mono):
+            with patch("src.diagnostics.camera.cv2.imencode", side_effect=fail_mono):
                 download, message = self.controller.save_image("시편")
-            self.assertIsNone(download["value"])
-            self.assertFalse(download["visible"])
+            self.assertIsNone(download)
             self.assertIn("Mono PNG", message)
             self.assertFalse(self.controller.capture_dir.exists())
 
@@ -365,7 +298,7 @@ class CamTestTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             self.controller.capture_dir = Path(folder)
-            with patch("Cam_test.cv2.imencode", side_effect=slow_encoder), ThreadPoolExecutor(2) as pool:
+            with patch("src.diagnostics.camera.cv2.imencode", side_effect=slow_encoder), ThreadPoolExecutor(2) as pool:
                 saving = pool.submit(self.controller.save_image)
                 try:
                     self.assertTrue(started.wait(1))
@@ -375,21 +308,11 @@ class CamTestTests(unittest.TestCase):
                 finally:
                     release.set()
                 download, _ = saving.result(timeout=2)
-            color_path, mono_path = map(Path, download["value"])
+            color_path, mono_path = map(Path, download)
             color = cv2.imdecode(np.frombuffer(color_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
             mono = cv2.imdecode(np.frombuffer(mono_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
             np.testing.assert_array_equal(cv2.cvtColor(color, cv2.COLOR_BGR2RGB), original)
             np.testing.assert_array_equal(mono, np.full((3, 4), 100, np.uint8))
-
-    def test_save_button_is_connected_to_snapshot_callback(self):
-        with patch("Cam_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn for fn in demo.fns.values()}
-        self.assertEqual(callbacks["save_image"].fn, self.controller.save_image)
-        self.assertEqual(len(callbacks["save_image"].inputs), 1)
-        self.assertEqual(callbacks["save_image"].inputs[0].label, "이미지 이름")
-        self.assertEqual(len(callbacks["save_image"].outputs), 2)
-        self.assertEqual(callbacks["save_image"].outputs[0].file_count, "multiple")
 
     def test_shutdown_releases_both_devices(self):
         self.camera.stop.side_effect = RuntimeError("camera cleanup failed")

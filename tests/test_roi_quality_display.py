@@ -72,33 +72,3 @@ class RoiQualityDisplayTests(unittest.TestCase):
             self.assertIn("기준 0.300", roi_score_message(result.metadata))
             self.assertEqual(result.metadata["quality_limits"]["min_score"], .30)
             self.assertIn("boundary_fits", json.loads(json.dumps(result.metadata)))
-
-    def test_main_error_renders_score_and_non_score_reasons_on_separate_lines(self):
-        from src.gui import app
-
-        error = RoiQualityError(reviewed_result())
-        rendered = app._inspectionError(str(error), [])[0]
-        self.assertIn("점수 조건 통과: 0.340 ≥ 적용 기준 0.300", rendered)
-        self.assertIn("자동 검사 보류 사유:<br>", rendered)
-        self.assertIn("35.0% &lt; 최소 55.0%", rendered)
-
-    def test_camera_test_displays_applied_threshold_and_actual_hold_reasons(self):
-        from Cam_test import CamTestController
-
-        controller = CamTestController()
-        controller.camera = Mock()
-        controller.camera.get_latest_frame.return_value = np.full((3, 4, 3), 100, np.uint8)
-        controller.camera.get_status.return_value.connected = True
-        result = reviewed_result()
-        result.metadata.update(roi_detected=True, quality_score=.34)
-        with patch("Cam_test.detect_auto_roi", return_value=result):
-            image, message = controller.extract_roi()
-        self.assertEqual(image.shape, (3, 4, 3))
-        self.assertIn("점수 조건 통과: 0.340 ≥ 적용 기준 0.300", message)
-        self.assertIn("35.0% < 최소 55.0%", message)
-        self.assertIn("자동 검사에 사용하지 않습니다", message)
-        controller.camera.start.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

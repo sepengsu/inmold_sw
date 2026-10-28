@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from src.gui.inspection import InspectionEngine
+from src.inspection.engine import InspectionEngine
 from src.postprocess import impregnation_pct, merge_probabilities, restore_original_mask
 from src.preprocess import load_config, preprocess_array, valid_roi_mask
 from src.preprocess.auto_roi import AutoRoiResult, RoiQualityError, detect_auto_roi
@@ -88,7 +88,7 @@ class RoiPipelineTests(unittest.TestCase):
         engine.config, engine.model, engine.batch_size = auto_config(), object(), 2
         engine.checkpoint = {"threshold": .5}
         with patch("src.preprocess.auto_roi.detect_auto_roi", return_value=detected), patch(
-            "src.gui.inspection.predict_tiles",
+            "src.inspection.engine.predict_tiles",
             side_effect=lambda model, patches, **kwargs: [np.ones(tile.shape, np.float32) for tile in patches],
         ) as predict:
             result = engine.inspect(np.full((2046, 2046, 3), 50, np.uint8))
@@ -118,7 +118,7 @@ class RoiPipelineTests(unittest.TestCase):
         engine = InspectionEngine.__new__(InspectionEngine)
         engine.config = auto_config()
         with patch("src.preprocess.auto_roi.detect_auto_roi", return_value=detected), patch(
-            "src.gui.inspection.predict_tiles"
+            "src.inspection.engine.predict_tiles"
         ) as predict:
             with self.assertRaisesRegex(ValueError, "P1.*경계"):
                 engine.inspect(np.full((2046, 2046, 3), 50, np.uint8))
@@ -130,7 +130,7 @@ class RoiPipelineTests(unittest.TestCase):
         engine = InspectionEngine.__new__(InspectionEngine)
         engine.config = auto_config()
         with patch("src.preprocess.auto_roi.detect_auto_roi", side_effect=RoiQualityError(detected)), patch(
-            "src.gui.inspection.predict_tiles"
+            "src.inspection.engine.predict_tiles"
         ) as predict:
             with self.assertRaisesRegex(RoiQualityError, "검토 필요"):
                 engine.inspect(np.full((6, 6, 3), 50, np.uint8))

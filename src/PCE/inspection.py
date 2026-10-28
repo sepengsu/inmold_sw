@@ -102,7 +102,7 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         raise ValueError("공인인증 입력은 uint8 RGB 영상이어야 합니다.")
     gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
     detected = detect_regions(gray)
-    annotated = np.zeros_like(frame_rgb)
+    annotated = frame_rgb.copy()
     scores, crops, regions, valid_pixels = [], [], [], []
     clahe = config.get("clahe", {})
     frame_valid = np.any(frame_rgb != 0, axis=2).astype(np.uint8)
@@ -142,12 +142,20 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
 
         destination = annotated[y:y + h, x:x + w]
         coverage = _project_to_bbox(np.ones(source_valid.shape, dtype=np.uint8), region).astype(bool)
-        destination[coverage] = frame_rgb[y:y + h, x:x + w][coverage]
         projected_exposure = (_project_to_bbox(source_exposure.astype(np.uint8), region).astype(bool)
                               & coverage & frame_valid[y:y + h, x:x + w].astype(bool))
         destination[projected_exposure] = (
             (destination[projected_exposure].astype(np.uint16) + red) // 2
         ).astype(np.uint8)
         regions.append(region)
+
+    colors = ((255, 220, 0), (32, 215, 232), (234, 85, 223))
+    for point, (region, color) in enumerate(zip(regions, colors, strict=True), start=1):
+        x, y, w, h = (region[key] for key in ("x", "y", "width", "height"))
+        # Draw outside the crop so saved P1~P3 detail images retain their overlay only.
+        cv2.rectangle(annotated, (x - 3, y - 3), (x + w + 2, y + h + 2), color, 2)
+        label_y = y - 8 if y >= 28 else min(frame_rgb.shape[0] - 4, y + h + 18)
+        cv2.putText(annotated, f"P{point}", (x, label_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
     return PceResult(tuple(scores), float(np.mean(scores)), annotated,
                      tuple(crops), tuple(regions), tuple(valid_pixels))

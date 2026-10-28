@@ -5,13 +5,12 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import gradio as gr
 import cv2
 import numpy as np
 
 from src.PCE.inspection import detect_regions, inspect_frame
-from src.gui.statistics import StatisticsController
 from src.inspection_history import InspectionHistoryStore, InspectionRecord
+from src.web.service import Workbench
 from tests.inference.report_pce20 import make_row
 
 
@@ -67,7 +66,7 @@ class PceTests(unittest.TestCase):
             self.assertLess(np.count_nonzero(tile > 150) / tile.size, 0.05)
             self.assertGreater(np.count_nonzero(frame[y:y + h, x:x + w, 0] > 150) / (w * h), 0.3)
             self.assertEqual(preview.shape, (256, 256, 3))
-            self.assertEqual(result.annotated_frame[y, x].tolist(), [0, 0, 0])
+            np.testing.assert_array_equal(result.annotated_frame[y, x], frame[y, x])
         self.assertEqual(result.scores, (100.0, 100.0, 100.0))
 
         with tempfile.TemporaryDirectory() as folder:
@@ -76,10 +75,13 @@ class PceTests(unittest.TestCase):
                                       source="file", metadata={"regions": result.regions,
                                       "conditions": {"inspection_mode": "certification"}})
             saved = store.save(record, frame, result.annotated_frame)
-            event = gr.SelectData(None, {"index": [0, 0], "value": None, "selected": True})
-            detail = StatisticsController(lambda: store).detail([saved.record_id], event)
-            self.assertEqual(detail[3].shape, (256, 256, 3))
-            self.assertEqual(detail[3][128, 128].tolist(), [100, 100, 100])
+            workbench = Workbench.__new__(Workbench)
+            workbench.history = store
+            detail = workbench.detail(saved.record_id)
+            p1 = cv2.cvtColor(cv2.imdecode(np.frombuffer(detail["images"]["p1"], np.uint8),
+                                               cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+            self.assertEqual(p1.shape, (256, 256, 3))
+            self.assertEqual(p1[128, 128].tolist(), [100, 100, 100])
 
     def test_rotated_black_pixels_stay_out_of_score_and_overlay(self):
         frame = np.full((250, 550, 3), 240, dtype=np.uint8)
@@ -126,8 +128,11 @@ class PceTests(unittest.TestCase):
         self.assertEqual([region["x"] for region in result.regions], [30, 130, 230])
         self.assertEqual(result.crops[0].shape, (256, 256, 3))
         self.assertTrue(np.all(result.crops[0][-1, -1] == 100))
-        self.assertTrue(np.all(result.annotated_frame[0:79] == 0))
-        self.assertTrue(np.all(result.annotated_frame[80:110, 0:30] == 0))
+        np.testing.assert_array_equal(result.annotated_frame[0:50], frame[0:50])
+        np.testing.assert_array_equal(result.annotated_frame[80:110, 0:25], frame[80:110, 0:25])
+        for region, color in zip(result.regions,
+                                 ((255, 220, 0), (32, 215, 232), (234, 85, 223)), strict=True):
+            np.testing.assert_array_equal(result.annotated_frame[region["y"], region["x"] - 3], color)
         self.assertGreater(result.annotated_frame[80, 30, 0], 100)
         np.testing.assert_array_equal(frame, original)
 
@@ -189,9 +194,12 @@ class PceTests(unittest.TestCase):
                                       source="file", metadata={"regions": result.regions,
                                       "conditions": {"inspection_mode": "certification"}})
             saved = store.save(record, frame, result.annotated_frame)
-            event = gr.SelectData(None, {"index": [0, 0], "value": None, "selected": True})
-            detail = StatisticsController(lambda: store).detail([saved.record_id], event)
-            for reopened, displayed in zip(detail[3:6], result.crops, strict=True):
+            workbench = Workbench.__new__(Workbench)
+            workbench.history = store
+            detail = workbench.detail(saved.record_id)
+            for key, displayed in zip(("p1", "p2", "p3"), result.crops, strict=True):
+                reopened_bgr = cv2.imdecode(np.frombuffer(detail["images"][key], np.uint8), cv2.IMREAD_COLOR)
+                reopened = cv2.cvtColor(reopened_bgr, cv2.COLOR_BGR2RGB)
                 np.testing.assert_array_equal(reopened, displayed)
 
 

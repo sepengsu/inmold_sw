@@ -2,7 +2,7 @@
 
 This module is adapted to the Basler-camera control project supplied with this
 workspace. It owns one pypylon camera, continuously acquires only the newest
-frame, and exposes safe RGB copies for Gradio and inference code.
+frame, and exposes safe RGB copies for the web preview and inference code.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ class CameraControl:
 
     ``serial_number=None`` selects pylon's first available device. Calling
     :meth:`get_latest_frame` returns an RGB NumPy copy that is safe to submit to
-    a model or a ``gr.Image(type='numpy')`` component.
+    a model or an HTTP image response.
     """
 
     def __init__(

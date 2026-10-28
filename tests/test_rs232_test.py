@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import serial
 
-from RS232_test import RS232TestController, build_ui
+from src.diagnostics.serial import RS232TestController
 from src.hardware.led_control import ACK, CHANNEL_COUNT, build_brightness_packet
 
 
@@ -25,8 +25,6 @@ class RS232TestTests(unittest.TestCase):
         self.controller.connect("COM3", 9600)
 
     def test_start_build_connect_and_close_do_not_change_brightness(self):
-        with patch("RS232_test.list_ports.comports", return_value=[]):
-            build_ui(self.controller)
         self.factory.assert_not_called()
         self.controller.snapshot()
         self.connect()
@@ -114,58 +112,6 @@ class RS232TestTests(unittest.TestCase):
         self.connect()
         self.assertEqual(self.controller.last_ack, {})
         self.assertIn("명령 대기", self.controller.snapshot()[0])
-
-    def test_each_ui_button_routes_only_its_channel(self):
-        with patch("RS232_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn.fn for fn in demo.fns.values()}
-        self.connect()
-        self.assertEqual(CHANNEL_COUNT, 6)
-        for channel in range(1, 7):
-            with self.subTest(channel=channel):
-                self.port.write.reset_mock()
-                callbacks[f"light_ch{channel}"](10, "COM3", 9600)
-                self.port.write.assert_called_once_with(build_brightness_packet(channel, 10).packet)
-
-    def test_ui_off_resets_only_acknowledged_sliders_on_partial_failure(self):
-        with patch("RS232_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn.fn for fn in demo.fns.values()}
-        self.connect()
-        self.port.read.side_effect = [ACK, b""]
-        result = callbacks["light_off"]("COM3", 9600)
-        self.assertEqual(result[-6], 0)
-        for unchanged in result[-5:]:
-            self.assertEqual(unchanged, {"__type__": "update"})
-        self.assertEqual(self.port.write.call_count, 2)
-        self.assertEqual(self.port.write.call_args_list[0].args[0], b"\x021000\x03")
-
-    def test_ui_apply_all_sends_six_values_in_order(self):
-        with patch("RS232_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn.fn for fn in demo.fns.values()}
-        self.connect()
-        callbacks["light_all"](10, 20, 30, 40, 50, 60, "COM3", 9600)
-        self.assertEqual(
-            [call.args[0] for call in self.port.write.call_args_list],
-            [build_brightness_packet(channel, value).packet for channel, value in enumerate((10, 20, 30, 40, 50, 60), 1)],
-        )
-        self.assertEqual(self.port.write.call_args_list[4].args[0], b"\x025128\x03")
-        self.assertEqual(self.port.write.call_args_list[5].args[0], b"\x026153\x03")
-        self.assertEqual(set(self.controller.last_ack), set(range(1, 7)))
-        self.assertIn("CH6 60%", self.controller.message)
-
-    def test_ui_off_sends_six_zero_packets_and_resets_six_sliders(self):
-        with patch("RS232_test.list_ports.comports", return_value=[]):
-            demo = build_ui(self.controller)
-        callbacks = {fn.api_name: fn.fn for fn in demo.fns.values()}
-        self.connect()
-        result = callbacks["light_off"]("COM3", 9600)
-        self.assertEqual(result[-6:], (0,) * 6)
-        self.assertEqual(
-            [call.args[0] for call in self.port.write.call_args_list],
-            [b"\x02" + str(channel).encode("ascii") + b"000\x03" for channel in range(1, 7)],
-        )
 
     def test_ch5_failure_stops_before_ch6(self):
         self.connect()
