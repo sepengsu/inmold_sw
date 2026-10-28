@@ -35,6 +35,9 @@ class DiagnosticWebTests(unittest.TestCase):
             history_root=self.root / "history", load_model=False, auto_connect_light=False,
         )
         self.workbench.capture_dir = self.root / "captures"
+        connect = patch.object(self.workbench.result_sender, "_connect", side_effect=ConnectionRefusedError("closed"))
+        connect.start()
+        self.addCleanup(connect.stop)
         self.app = create_app(self.workbench)
         self.client = TestClient(self.app)
         self.client.__enter__()
@@ -70,6 +73,11 @@ class DiagnosticWebTests(unittest.TestCase):
         self.assertIn("uint16", preview["frame_info"])
         capture = self.client.post("/api/camera-test/capture", json={"name": "sample"}).json()
         self.assertEqual(len(capture["files"]), 2)
+        self.assertNotIn(str(self.workbench.capture_dir), capture["message"])
+        with patch("src.web.diagnostics.os.startfile", create=True) as open_folder:
+            opened = self.client.post("/api/camera-test/capture/open-folder", json={"folder": capture["folder"]})
+        self.assertEqual(opened.status_code, 200)
+        open_folder.assert_called_once_with(str(self.workbench.capture_dir / capture["folder"]), "explore")
         for file in capture["files"]:
             self.assertEqual(self.client.get(file["url"]).status_code, 200)
         repeated = self.client.post("/api/camera-test/capture", json={"name": "sample"}).json()
@@ -78,6 +86,20 @@ class DiagnosticWebTests(unittest.TestCase):
         self.assertEqual(exposure["exposure_us"], 25000)
         self.assertEqual(self.client.get("/api/camera-test/exposure").json()["exposure_us"], 25000)
         self.assertEqual(self.client.post("/api/camera-test/capture", json={"name": "../bad"}).json()["files"], [])
+
+    def test_capture_folder_rejects_unrelated_and_missing_paths_and_reports_open_failure(self):
+        endpoint = "/api/camera-test/capture/open-folder"
+        with patch("src.web.diagnostics.os.startfile", create=True) as open_folder:
+            for folder in ("../history", "C:/Windows", "2026-10-28/..", "20261028"):
+                with self.subTest(folder=folder):
+                    self.assertEqual(self.client.post(endpoint, json={"folder": folder}).status_code, 400)
+            self.assertEqual(self.client.post(endpoint, json={"folder": "2026-10-28"}).status_code, 404)
+            open_folder.assert_not_called()
+            (self.workbench.capture_dir / "2026-10-28").mkdir(parents=True)
+            open_folder.side_effect = OSError("Explorer unavailable")
+            failed = self.client.post(endpoint, json={"folder": "2026-10-28"})
+        self.assertEqual(failed.status_code, 500)
+        self.assertIn("저장 폴더를 열지 못했습니다", failed.json()["detail"])
 
     def test_optional_live_roi_stream_updates_without_reextracting(self):
         camera = Mock()

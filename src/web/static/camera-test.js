@@ -52,6 +52,33 @@ async function roiPreview(key,value) {
   try{renderRoi(await api(`/api/roi/preview?${key}=${encodeURIComponent(value)}`))}catch(error){message("roi-config-message",error.message)}
 }
 
+async function captureImages(messageId, filesId, folderButtonId) {
+  const buttons=[$("preview-capture"),$("capture")];
+  if(buttons.some(button=>button.disabled))return;
+  buttons.forEach(button=>{button.disabled=true});
+  message(messageId,"카메라 원본 프레임 저장 중…");
+  $(filesId).replaceChildren();
+  const folderButton=$(folderButtonId);
+  folderButton.disabled=true;
+  delete folderButton.dataset.folder;
+  try{
+    const data=await post("/api/camera-test/capture",{name:$("capture-name").value});
+    message(messageId,data.message);
+    $(filesId).innerHTML=data.files.map((file,index)=>`<a href="${esc(file.url)}" download>${index===0?"Color":"Mono"} PNG 다운로드</a>`).join("");
+    if(data.folder && data.files.length){folderButton.dataset.folder=data.folder;folderButton.disabled=false}
+  }catch(error){message(messageId,`이미지 저장 실패: ${error.message}`)}
+  finally{buttons.forEach(button=>{button.disabled=false})}
+}
+
+async function openCaptureFolder(buttonId, messageId) {
+  const button=$(buttonId);
+  if(button.disabled || !button.dataset.folder)return;
+  button.disabled=true;
+  try{const data=await post("/api/camera-test/capture/open-folder",{folder:button.dataset.folder});message(messageId,data.message)}
+  catch(error){message(messageId,`폴더 열기 실패: ${error.message}`)}
+  finally{button.disabled=false}
+}
+
 document.addEventListener("DOMContentLoaded",async()=>{
   try{
     const data=await api("/api/camera-test/bootstrap");
@@ -67,7 +94,10 @@ document.addEventListener("DOMContentLoaded",async()=>{
     renderRoi(await api("/api/roi"));
   }catch(error){message("camera-status",`시작 실패: ${error.message}`)}
   preview();setInterval(preview,200);
-  $("capture").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/capture",{name:$("capture-name").value});message("capture-message",data.message);$("capture-files").innerHTML=data.files.map(file=>`<a href="${esc(file.url)}" download>${esc(file.name)}</a>`).join("")}catch(error){message("capture-message",error.message)}});
+  $("preview-capture").addEventListener("click",()=>captureImages("preview-capture-message","preview-capture-files","preview-open-folder"));
+  $("capture").addEventListener("click",()=>captureImages("capture-message","capture-files","capture-open-folder"));
+  $("preview-open-folder").addEventListener("click",()=>openCaptureFolder("preview-open-folder","preview-capture-message"));
+  $("capture-open-folder").addEventListener("click",()=>openCaptureFolder("capture-open-folder","capture-message"));
   $("apply-exposure").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/exposure",{exposure_us:Number($("exposure").value)});if(data.exposure_us!=null)$("exposure").value=data.exposure_us;message("camera-status",data.camera_status);message("exposure-message",data.message)}catch(error){message("exposure-message",error.message)}});
   $("load-exposure").addEventListener("click",async()=>{try{const data=await api("/api/camera-test/exposure");if(data.exposure_us!=null)$("exposure").value=data.exposure_us;message("exposure-message",data.message)}catch(error){message("exposure-message",error.message)}});
   $("extract-roi").addEventListener("click",async()=>{const button=$("extract-roi");button.disabled=true;try{const data=await post("/api/camera-test/roi");message("roi-message",data.message);roiLive=!!data.image;if(data.image)$("roi-preview").src=data.image;else $("roi-preview").removeAttribute("src")}catch(error){message("roi-message",error.message)}finally{button.disabled=false}});

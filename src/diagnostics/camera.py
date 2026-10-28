@@ -227,8 +227,7 @@ class CamTestController:
             return None, f"이미지 저장 실패: {error}"
         height, width = snapshot.shape[:2]
         return ([str(path) for path in paths],
-                f"✓ Color · Mono 이미지 2장 저장 완료 · **{width} × {height}px · PNG**\n\n"
-                + "\n\n".join(f"**{label}**: `{path}`" for label, path in zip(("Color", "Mono"), paths)))
+                f"✓ Color · Mono 이미지 2장 저장 완료 · **{width} × {height}px · PNG**")
 
     def extract_roi(self) -> tuple:
         with self._lock:

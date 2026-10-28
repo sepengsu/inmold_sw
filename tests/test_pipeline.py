@@ -63,6 +63,7 @@ class PipelineTests(unittest.TestCase):
 class ModelTests(unittest.TestCase):
     def test_checkpoint_and_prediction(self):
         import torch
+        from unittest.mock import patch
         from src.model import UNet, load_checkpoint, predict_tiles
 
         with tempfile.TemporaryDirectory() as folder:
@@ -81,6 +82,18 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(outputs[0].shape, (32, 32))
             self.assertTrue(np.isfinite(outputs[0]).all())
             self.assertTrue(((0 <= outputs[0]) & (outputs[0] <= 1)).all())
+            self.assertEqual(info["device"], "cpu")
+            self.assertEqual(info["device_name"], "CPU")
+            with patch("src.model.inference.torch.cuda.is_available", return_value=False):
+                fallback, fallback_info = load_checkpoint(path, device="auto")
+            self.assertEqual(next(fallback.parameters()).device.type, "cpu")
+            self.assertEqual(fallback_info["device"], "cpu")
+            automatic, automatic_info = load_checkpoint(path, device="auto")
+            expected_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            self.assertEqual(str(next(automatic.parameters()).device), expected_device)
+            self.assertEqual(automatic_info["device"], expected_device)
+            auto_outputs = predict_tiles(automatic, [np.zeros((32, 32), dtype=np.uint8)])
+            np.testing.assert_allclose(auto_outputs[0], outputs[0], rtol=1e-4, atol=1e-5)
 
     def test_three_class_head_merges_exposure_and_weldline(self):
         import torch

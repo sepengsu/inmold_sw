@@ -1,6 +1,6 @@
 """Basler RGB frame to supported segmentation models and UI results."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 from pathlib import Path
 
@@ -128,17 +128,22 @@ class InspectionEngine:
         self.model_info = {**self.checkpoint, "checkpoint": str(self.checkpoint_path.resolve()),
                            "sha256": digest}
 
+    def _prepare_roi(self, gray: np.ndarray) -> dict:
+        self.last_roi_detection = None
+        try:
+            prepared = preprocess_roi_array(gray, self.config, allow_quality_warnings=True)
+        except RoiQualityError as error:
+            self.last_roi_detection = error.result.metadata
+            raise
+        self.last_roi_detection = prepared["metadata"].get("roi_detection")
+        return prepared
+
     def inspect(self, frame_rgb: np.ndarray) -> InspectionResult:
         if (not isinstance(frame_rgb, np.ndarray) or frame_rgb.dtype != np.uint8
                 or frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3):
             raise ValueError("카메라 프레임은 uint8 RGB 배열이어야 합니다.")
         gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
-        try:
-            prepared = preprocess_roi_array(gray, self.config)
-        except RoiQualityError as error:
-            self.last_roi_detection = error.result.metadata
-            raise
-        self.last_roi_detection = prepared["metadata"].get("roi_detection")
+        prepared = self._prepare_roi(gray)
         roi = prepared["metadata"]["roi"]
         regions = plan_measurement_regions(roi, prepared["valid_mask"])
         patches = []
@@ -153,7 +158,7 @@ class InspectionEngine:
         exposures = tuple(threshold_mask(np.concatenate(probabilities[index:index + 2], axis=0),
                                         self.checkpoint["threshold"]) for index in (0, 2, 4))
         scores = score_regions(exposures)
-        annotated, crops = annotate_frame(frame_rgb, exposures, regions, self.last_roi_detection)
+        annotated, crops = annotate_frame(frame_rgb, exposures, regions)
         return InspectionResult(
             scores=scores, average=float(np.mean(scores)), annotated_frame=annotated, crops=crops,
             defect_pixels=tuple(int(np.count_nonzero(mask)) for mask in exposures),
@@ -164,5 +169,11 @@ class InspectionEngine:
     def inspect_certification(self, frame_rgb: np.ndarray):
         from src.PCE import inspect_frame
 
-        self.last_roi_detection = None
-        return inspect_frame(frame_rgb, self.model, self.checkpoint["threshold"], self.config)
+        if (not isinstance(frame_rgb, np.ndarray) or frame_rgb.dtype != np.uint8
+                or frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3 or not frame_rgb.size):
+            raise ValueError("공인인증 입력은 uint8 RGB 영상이어야 합니다.")
+        self._prepare_roi(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY))
+        # The common ROI check gates inference; certification still measures its
+        # own three windows from the complete original frame.
+        result = inspect_frame(frame_rgb, self.model, self.checkpoint["threshold"], self.config)
+        return replace(result, roi_detection=self.last_roi_detection)

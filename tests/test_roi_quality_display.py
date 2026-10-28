@@ -54,6 +54,19 @@ class RoiQualityDisplayTests(unittest.TestCase):
         metadata.update(quality_score=.29, needs_review_reason="LOW_BOUNDARY_SCORE")
         self.assertIn("점수 조건 미달: 0.290 < 적용 기준 0.300", roi_quality_message(metadata))
 
+    def test_normal_inference_warning_does_not_claim_inspection_is_blocked(self):
+        for reason, label in (("FABRIC_OUTSIDE_TOP", "상단 ROI 바깥에도 직물 무늬가 검출됨"),
+                              ("AMBIGUOUS_CANDIDATES", "서로 다른 경계 후보들의 점수가 비슷해 선택이 불확실함")):
+            with self.subTest(reason=reason):
+                metadata = deepcopy(reviewed_result().metadata)
+                metadata.update(inspection_allowed=True, needs_review_reason=reason, warning_reasons=[reason])
+                message = roi_quality_message(metadata)
+                self.assertIn("ROI 경고 — 점수 통과 · 추론 허용:", message)
+                self.assertIn(f"{label} [{reason}]", message)
+                self.assertNotIn("자동 검사 보류 사유", message)
+                metadata.pop("inspection_allowed")
+                self.assertIn("자동 검사 보류 사유", roi_quality_message(metadata))
+
     def test_passing_result_has_no_hold_reasons(self):
         metadata = deepcopy(reviewed_result().metadata)
         metadata.update(quality_status="RECOVERED", needs_review_reason="")

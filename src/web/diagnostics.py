@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from base64 import b64encode
+from datetime import date
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -43,6 +45,10 @@ class SerialApplyRequest(ConnectionRequest):
 
 class CaptureRequest(BaseModel):
     name: str = ""
+
+
+class CaptureFolderRequest(BaseModel):
+    folder: str
 
 
 def _image_url(image, extension: str = ".png") -> str | None:
@@ -128,10 +134,28 @@ def attach_diagnostic_routes(app: FastAPI, workbench: Workbench, static_dir: Pat
         if paths is None:
             return {"message": message, "files": []}
         root = camera_test.capture_dir
-        return {"message": message, "files": [
+        folder = Path(paths[0]).parent.relative_to(root).as_posix()
+        return {"message": message, "folder": folder, "files": [
             {"name": Path(path).name,
              "url": "/api/camera-test/capture/" + Path(path).relative_to(root).as_posix()}
             for path in paths]}
+
+    @app.post("/api/camera-test/capture/open-folder")
+    def camera_open_capture_folder(request: CaptureFolderRequest):
+        try:
+            if date.fromisoformat(request.folder).isoformat() != request.folder:
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "저장 폴더를 확인하세요.") from None
+        root = camera_test.capture_dir.resolve()
+        folder = (root / request.folder).resolve()
+        if not folder.is_relative_to(root) or not folder.is_dir():
+            raise HTTPException(404, "저장 폴더를 찾을 수 없습니다.")
+        try:
+            os.startfile(str(folder), "explore")
+        except (OSError, AttributeError):
+            raise HTTPException(500, "저장 폴더를 열지 못했습니다. 탐색기 실행 상태를 확인하세요.") from None
+        return {"message": "저장 폴더를 탐색기에서 열었습니다."}
 
     @app.get("/api/camera-test/capture/{date}/{filename}")
     def camera_download(date: str, filename: str):

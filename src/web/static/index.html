@@ -6,7 +6,8 @@
   <meta name="color-scheme" content="dark">
   <title>Vision Workbench</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v=20261028-certification-roi-score" defer></script>
+  <script src="/static/roi-viewer.js" defer></script>
 </head>
 <body>
   <main id="inspection-page" class="main-grid">
@@ -54,8 +55,8 @@
         <div class="editor-tab">검사 영상 <span>함침율 = (1 − 결함픽셀수 / 전체픽셀수) × 100</span></div>
         <div class="inspection-overview">
           <figure class="original-frame">
-            <figcaption>원본 영상</figcaption>
-            <div class="image-box inspection-image"><span class="image-placeholder">측정 후 원본 영상이 표시됩니다.</span><img id="result-image" alt="마지막 검사 원본 영상" hidden></div>
+            <figcaption id="overview-caption">검사 영상 · P1~P3 ROI 위치</figcaption>
+            <div class="image-box inspection-image"><span class="image-placeholder">측정 후 검사 영상이 표시됩니다.</span><img id="result-image" alt="마지막 검사 영상" hidden></div>
           </figure>
           <section class="calculation-panel" aria-label="P1~P3 함침율 계산">
             <div class="calculation-heading"><strong id="calculation-title">함침율 계산</strong></div>
@@ -80,9 +81,9 @@
           </section>
         </div>
         <div class="region-images">
-          <figure class="p1"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p1-image" alt="P1" hidden></div><figcaption id="p1-label">P1 · 왼쪽 · 256×512</figcaption></figure>
-          <figure class="p2"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p2-image" alt="P2" hidden></div><figcaption id="p2-label">P2 · 가운데 · 256×512</figcaption></figure>
-          <figure class="p3"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p3-image" alt="P3" hidden></div><figcaption id="p3-label">P3 · 오른쪽 · 256×512</figcaption></figure>
+          <figure class="p1"><button type="button" class="image-box roi-zoom-trigger" data-roi-image="p1-image" aria-label="P1 세부 ROI 확대 보기" aria-haspopup="dialog" aria-controls="roi-viewer" title="클릭하여 확대 보기" disabled><span class="image-placeholder">측정 전</span><img id="p1-image" alt="P1" hidden></button><figcaption id="p1-label">P1 · 왼쪽 · 256×512</figcaption></figure>
+          <figure class="p2"><button type="button" class="image-box roi-zoom-trigger" data-roi-image="p2-image" aria-label="P2 세부 ROI 확대 보기" aria-haspopup="dialog" aria-controls="roi-viewer" title="클릭하여 확대 보기" disabled><span class="image-placeholder">측정 전</span><img id="p2-image" alt="P2" hidden></button><figcaption id="p2-label">P2 · 가운데 · 256×512</figcaption></figure>
+          <figure class="p3"><button type="button" class="image-box roi-zoom-trigger" data-roi-image="p3-image" aria-label="P3 세부 ROI 확대 보기" aria-haspopup="dialog" aria-controls="roi-viewer" title="클릭하여 확대 보기" disabled><span class="image-placeholder">측정 전</span><img id="p3-image" alt="P3" hidden></button><figcaption id="p3-label">P3 · 오른쪽 · 256×512</figcaption></figure>
         </div>
         <button id="inspect" class="primary">▶ &nbsp;측정 시작</button>
       </div>
@@ -103,5 +104,23 @@
     <section class="statistics-detail"><div id="statistics-detail-text">측정 항목을 선택하세요.</div><div class="detail-images"><figure><figcaption>저장 원본</figcaption><img id="detail-original" alt="저장 원본" hidden></figure><figure><figcaption>저장 결과</figcaption><img id="detail-result" alt="저장 결과" hidden></figure></div><div class="detail-images three"><figure><figcaption>P1</figcaption><img id="detail-p1" alt="P1" hidden></figure><figure><figcaption>P2</figcaption><img id="detail-p2" alt="P2" hidden></figure><figure><figcaption>P3</figcaption><img id="detail-p3" alt="P3" hidden></figure></div><details><summary>촬영·검사 조건</summary><pre id="detail-metadata"></pre></details></section>
   </main>
   <div id="lighting-modal" class="modal" hidden><div class="lighting-dialog"><div class="lighting-modal-header"><div><b>조명 제어</b><span>4 LIGHTS / 6 CHANNELS</span></div><p>적용 버튼을 누르면 해당 조명에 전송합니다. 조명값 저장·불러오기는 화면 설정만 처리하며 실제 광량을 변경하지 않습니다.</p></div><div class="button-row"><button id="save-lighting">조명값 저장</button><button id="load-lighting">저장값 불러오기</button></div><p id="lighting-config-message" role="status"></p><div id="lighting-groups" class="lighting-group-grid"></div><div class="button-row"><button id="apply-lighting" class="primary">설정 적용 후 닫기</button><button id="close-lighting">닫기</button></div><p id="lighting-message" role="status"></p><div class="hint">통신 설정: COM3 · 9600 bps · 8N1 · 출력 0–255</div></div></div>
+  <dialog id="roi-viewer" class="roi-viewer" aria-labelledby="roi-viewer-title" aria-describedby="roi-viewer-help">
+    <div class="roi-viewer-toolbar">
+      <h2 id="roi-viewer-title">세부 ROI 확대 보기</h2>
+      <div class="roi-viewer-controls">
+        <button type="button" id="roi-zoom-out" aria-label="축소">−</button>
+        <output id="roi-zoom-value" aria-live="polite" aria-label="확대 배율">100%</output>
+        <button type="button" id="roi-zoom-in" aria-label="확대">+</button>
+        <button type="button" id="roi-zoom-fit">화면 맞춤</button>
+        <button type="button" id="roi-zoom-actual">원본 크기 (100%)</button>
+        <button type="button" id="roi-viewer-close" autofocus>닫기 (Esc)</button>
+      </div>
+    </div>
+    <p id="roi-viewer-help" class="hint">마우스 휠 또는 +/−: 확대·축소 · 드래그: 이동 · 더블 클릭 또는 0: 화면 맞춤</p>
+    <div id="roi-viewer-viewport" class="roi-viewer-viewport">
+      <p id="roi-viewer-message" class="roi-viewer-message" role="status">이미지를 불러오는 중입니다.</p>
+      <img id="roi-viewer-image" alt="" draggable="false" hidden>
+    </div>
+  </dialog>
 </body>
 </html>

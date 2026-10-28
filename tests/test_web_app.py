@@ -17,6 +17,7 @@ from src.hardware.camera_control import CameraControl
 from src.hardware.lighting_config import LightingConfigStore
 from src.hardware.led_control import LightController
 from src.inspection_history import InspectionHistoryStore
+from src.result_transfer import ResultSender
 from src.roi.threshold_config import RoiThresholdConfigStore
 from src.web.app import create_app
 from src.web.service import Workbench
@@ -37,6 +38,10 @@ class WebAppTests(unittest.TestCase):
         workbench.camera = CameraControl(settings=load_camera_settings(workbench.camera_config_path))
         workbench.light = LightController()
         workbench.history = InspectionHistoryStore(self.folder.name)
+        workbench.result_sender = ResultSender(local_host="127.0.0.1", host="127.0.0.1")
+        connect = patch.object(workbench.result_sender, "_connect", side_effect=ConnectionRefusedError("closed"))
+        connect.start()
+        self.addCleanup(connect.stop)
         workbench.lighting_config = LightingConfigStore(ROOT / "config/lighting.yaml")
         workbench.roi_config = RoiThresholdConfigStore(ROOT / "config/roi_gabor_boundary.yaml")
         workbench.model_error = None
@@ -78,6 +83,12 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(preview["threshold"], 0.25)
         self.assertEqual(preview["level"], "low")
 
+    def test_status_reports_actual_inference_device(self):
+        self.workbench.engine.model_info.update(device="cuda:0", device_name="NVIDIA GeForce RTX 5080")
+        status = self.client.get("/api/status").json()
+        self.assertEqual(status["inference_device"], "cuda:0")
+        self.assertEqual(status["inference_device_name"], "NVIDIA GeForce RTX 5080")
+
     def test_file_inspection_history_detail_export_and_clear(self):
         response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal",
                                                           "lighting": "0,0,0,0"},
@@ -103,9 +114,72 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/statistics").json()["summary"]["count"], 0)
 
     def test_missing_file_reports_error_without_history(self):
-        response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"})
+        with patch.object(self.workbench.result_sender, "submit") as submit:
+            response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"})
+        submit.assert_not_called()
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.client.get("/api/statistics").json()["summary"]["count"], 0)
+
+    def test_roi_warning_is_visible_and_preserved_in_history_in_both_modes(self):
+        inference = self.workbench.engine.inspect(None)
+        inference.roi_detection = {
+            "roi_detected": True, "quality_status": "NEEDS_REVIEW",
+            "quality_score": .44, "quality_threshold": .09,
+            "needs_review_reason": "AMBIGUOUS_CANDIDATES", "inspection_allowed": True,
+            "warning_reasons": ["AMBIGUOUS_CANDIDATES"],
+        }
+        self.workbench.engine.config["auto_roi"]["enabled"] = True
+        self.workbench.engine.last_roi_detection = inference.roi_detection
+        for mode in ("normal", "certification"):
+            with self.subTest(mode=mode):
+                response = self.client.post("/api/inspect", data={"source": "file", "mode": mode},
+                                            files={"image": ("frame.png", self.image, "image/png")})
+                self.assertEqual(response.status_code, 200, response.text)
+                result = response.json()
+                self.assertIn("점수 통과 · 추론 허용", result["roi_message"])
+                self.assertIn("AMBIGUOUS_CANDIDATES", result["roi_message"])
+                self.assertNotIn("자동 검사 보류 사유", result["roi_message"])
+                saved = self.client.get("/api/history").json()[0]
+                self.assertEqual(saved["metadata"]["roi_detection"], inference.roi_detection)
+                self.assertEqual(saved["metadata"]["conditions"]["inspection_mode"], mode)
+                self.assertIn("ROI 품질 경고", self.client.get("/api/status").json()["roi"])
+
+    def test_completed_measurements_submit_once_in_both_modes_even_if_history_save_fails(self):
+        frame = np.full((12, 15, 3), 80, dtype=np.uint8)
+        for mode in ("normal", "certification"):
+            for source in ("file", "camera"):
+                with self.subTest(mode=mode, source=source), patch.object(self.workbench.history, "save",
+                        side_effect=OSError("disk full")), patch.object(self.workbench.camera,
+                        "get_latest_frame", return_value=frame), patch.object(self.workbench.result_sender, "submit",
+                        return_value={"state": "queued", "message": "TCP 전송 요청됨"}) as submit:
+                    response = self.client.post("/api/inspect", data={"source": source, "mode": mode},
+                                                files={"image": ("frame.png", self.image, "image/png")})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    payload = response.json()
+                    self.assertIn("이력 저장 실패", payload["saved_message"])
+                    self.assertEqual(payload["transfer"]["state"], "queued")
+                    submit.assert_called_once()
+                    record = submit.call_args.args[0]
+                    for key in ("measured_at", "p1", "p2", "p3", "average", "elapsed_seconds"):
+                        self.assertEqual(getattr(record, key), payload["record"][key])
+
+    def test_disabled_transfer_keeps_local_history_and_does_not_write_json_files(self):
+        self.workbench.result_sender.stop()
+        response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"},
+                                    files={"image": ("frame.png", self.image, "image/png")})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["transfer"]["state"], "skipped")
+        self.assertEqual(len(self.client.get("/api/history").json()), 1)
+        self.assertFalse(self.client.get("/api/status").json()["transfer"]["enabled"])
+        self.assertEqual(list(Path(self.folder.name).rglob("*.json")), [])
+
+    def test_failed_measurement_never_submits_result(self):
+        with patch.object(self.workbench.engine, "inspect", side_effect=ValueError("ROI 검출 실패")), patch.object(
+                self.workbench.result_sender, "submit") as submit:
+            response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"},
+                                        files={"image": ("frame.png", self.image, "image/png")})
+        self.assertEqual(response.status_code, 400)
+        submit.assert_not_called()
 
     def test_original_roi_rectangle_and_pixel_counts_survive_history(self):
         from src.PCE.inspection import inspect_frame

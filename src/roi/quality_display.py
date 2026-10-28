@@ -33,7 +33,8 @@ def roi_quality_message(metadata: dict) -> str:
         "AMBIGUOUS_CANDIDATES": "서로 다른 경계 후보들의 점수가 비슷해 선택이 불확실함",
         "LOW_MULTI_EXPOSURE_CONSENSUS": "촬영 간 경계 일치 부족",
     }
-    lines.append("자동 검사 보류 사유:")
+    lines.append("ROI 경고 — 점수 통과 · 추론 허용:" if metadata.get("inspection_allowed")
+                 else "자동 검사 보류 사유:")
     for reason in reasons:
         detail = labels.get(reason, reason)
         for side, name in (("top", "상단"), ("bottom", "하단")):

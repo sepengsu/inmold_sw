@@ -13,7 +13,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Basler / 이미지 파일 함침율 검사 GUI")
     parser.add_argument("--config", type=Path, default=project_root / "config/preprocess.yaml")
     parser.add_argument("--checkpoint", type=Path, default=project_root / "model/best_model.pt")
-    parser.add_argument("--device", default="cpu", help="추론 장치 (cpu, cuda:0 등)")
+    parser.add_argument("--device", default="auto", help="추론 장치 (auto: CUDA 우선, cpu, cuda:0 등)")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--camera-serial", help="Basler 카메라 일련번호")
     parser.add_argument("--camera-config", type=Path, default=DEFAULT_CAMERA_CONFIG, help="카메라 시작 설정 YAML")

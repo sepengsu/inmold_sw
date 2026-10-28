@@ -11,6 +11,8 @@ from .unet import UNet
 
 def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tuple[UNet, dict]:
     """Load a supported vision_data U-Net checkpoint for inference."""
+    if device == "auto":
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
     checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True, mmap=True)
     architecture = checkpoint.get("architecture")
     if architecture == "grayscale_unet":
@@ -39,6 +41,9 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     metadata = {key: checkpoint[key] for key in ("epoch", "threshold", "base_channels")}
     metadata.update(architecture=architecture, positive_classes=positive_classes)
     model.to(device).eval()
+    actual_device = next(model.parameters()).device
+    metadata.update(device=str(actual_device),
+                    device_name=torch.cuda.get_device_name(actual_device) if actual_device.type == "cuda" else "CPU")
     return model, metadata
 
 

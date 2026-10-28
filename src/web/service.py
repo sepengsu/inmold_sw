@@ -20,7 +20,8 @@ from src.hardware.led_control import (
 )
 from src.inspection_history import InspectionHistoryStore, InspectionRecord, LOCAL_TIMEZONE
 from src.preprocess import load_config
-from src.roi.quality_display import roi_score_message
+from src.result_transfer import ResultSender
+from src.roi.quality_display import roi_quality_message, roi_score_message
 from src.roi.quality_profiles import linked_roi_settings, roi_level, roi_settings_summary
 from src.roi.threshold_config import RoiThresholdConfigStore
 
@@ -45,7 +46,8 @@ class Workbench:
     def __init__(self, *, config_path: Path, checkpoint_path: Path, device: str,
                  batch_size: int, camera_serial: str | None, use_camera: bool,
                  camera_config_path: Path, history_root: Path | None = None,
-                 load_model: bool = True, auto_connect_light: bool | None = None):
+                 load_model: bool = True, auto_connect_light: bool | None = None,
+                 result_sender: ResultSender | None = None):
         self.lock = RLock()
         self.camera_enabled = use_camera
         self.auto_connect_light = use_camera if auto_connect_light is None else auto_connect_light
@@ -53,6 +55,7 @@ class Workbench:
         self.camera = CameraControl(camera_serial, settings=load_camera_settings(camera_config_path))
         self.light = LightController()
         self.history = InspectionHistoryStore(history_root) if history_root else InspectionHistoryStore()
+        self.result_sender = result_sender if result_sender is not None else ResultSender()
         self.lighting_config = LightingConfigStore()
         self.roi_config = RoiThresholdConfigStore()
         self.engine = None
@@ -68,6 +71,7 @@ class Workbench:
                 self.model_error = str(error)
 
     def start(self) -> None:
+        self.result_sender.start()
         if self.auto_connect_light:
             try:
                 self.light.connect()
@@ -77,6 +81,7 @@ class Workbench:
             self.camera.start()
 
     def stop(self) -> None:
+        self.result_sender.stop()
         self.camera.stop()
         self.light.disconnect()
 
@@ -94,11 +99,16 @@ class Workbench:
         roi_state = ""
         threshold = None
         classes = []
+        device = device_name = None
         if self.engine:
+            model_info = getattr(self.engine, "model_info", self.engine.checkpoint)
+            device, device_name = model_info.get("device"), model_info.get("device_name")
             config = self.engine.config
             if config.get("auto_roi", {}).get("enabled"):
                 last = self.engine.last_roi_detection
                 roi_state = "자동 Gabor 경계 · " + (str(last["quality_status"]) if last else "측정 시 추출")
+                if last and last.get("inspection_allowed"):
+                    roi_state = "자동 Gabor 경계 · 점수 통과 · ROI 품질 경고"
             else:
                 roi = config["roi"]
                 roi_state = f'{roi["width"]} × {roi["height"]} @ ({roi["x"]}, {roi["y"]})'
@@ -108,8 +118,10 @@ class Workbench:
                 "camera_enabled": self.camera_enabled, "pixel_format": self.camera.settings.pixel_format,
                 "exposure_us": self.camera.settings.exposure_us,
                 "model": "LOADED" if self.engine else self.model_error or "로딩 대기",
+                "inference_device": device, "inference_device_name": device_name,
                 "light": light_state, "light_port": COM_PORT, "light_baudrate": BAUD_RATE,
-                "roi": roi_state, "threshold": threshold, "positive_classes": classes}
+                "roi": roi_state, "threshold": threshold, "positive_classes": classes,
+                "transfer": self.result_sender.status()}
 
     def bootstrap(self) -> dict:
         levels, lighting_message = self.lighting_config.initial_for_ui()
@@ -239,17 +251,23 @@ class Workbench:
                 )
             record = InspectionRecord(*map(float, inference.scores), measured_at=timestamp,
                                       source=source, elapsed_seconds=elapsed, metadata=metadata)
+            transfer = self.result_sender.submit(record)
             saved_message = "이력 자동 저장 완료"
             try:
                 record = self.history.save(record, frame, inference.annotated_frame)
             except (OSError, ValueError, sqlite3.Error) as error:
                 saved_message = f"이력 저장 실패: {error}"
+            detection = metadata["roi_detection"]
+            roi_message = None
+            if detection:
+                roi_message = (roi_quality_message(detection) if detection.get("inspection_allowed")
+                               else roi_score_message(detection))
             result = {"record": record_data(record), "mode": mode, "saved_message": saved_message,
+                      "transfer": transfer,
                       "valid_pixels": valid, "defect_pixels": defects,
                       "positive_classes": self.engine.checkpoint.get("positive_classes", ()),
                       "rotation_degrees": [r.get("rotation_deg") for r in getattr(inference, "regions", ())],
-                      "roi_message": (roi_score_message(inference.roi_detection)
-                                      if getattr(inference, "roi_detection", None) else None),
+                      "roi_message": roi_message,
                       "history": [],
                       "images": {"original": image_bytes(frame),
                                  "result": image_bytes(inference.annotated_frame),

@@ -25,7 +25,7 @@ class PceResult:
     regions: tuple[dict, dict, dict]
     valid_pixels: tuple[int, int, int]
     defect_pixels: tuple[int, int, int]
-    roi_detection: None = None
+    roi_detection: dict | None = None
     roi: None = None
     pce_detection: dict | None = None
 

@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 import json
+from math import isfinite
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -116,15 +117,30 @@ def _metadata(
     return metadata
 
 
-def _roi_stage(original: GrayImage, config: Config) -> tuple:
+def _roi_stage(original: GrayImage, config: Config, *, allow_quality_warnings: bool = False) -> tuple:
     effective = dict(config)
     detection = None
     if config["auto_roi"]["enabled"]:
-        from .auto_roi import detect_auto_roi
+        from .auto_roi import RoiQualityError, detect_auto_roi
 
-        result = detect_auto_roi(original, config["auto_roi"]["boundary_config"])
+        try:
+            result = detect_auto_roi(original, config["auto_roi"]["boundary_config"])
+        except RoiQualityError as error:
+            result = error.result
+            info = result.metadata
+            reasons = [reason for reason in info.get("needs_review_reason", "").split(";") if reason]
+            score, threshold = info.get("quality_score", float("nan")), info.get("quality_threshold", float("nan"))
+            if not (allow_quality_warnings and info.get("roi_detected") and reasons
+                    and info.get("quality_status") == "NEEDS_REVIEW"
+                    and not set(reasons) & {"INVALID_GEOMETRY", "LOW_BOUNDARY_SCORE"}
+                    and isfinite(score) and isfinite(threshold) and score >= threshold):
+                raise
+            # Keep the detector's review status; inspection callers may treat
+            # score-passed quality findings as advisory. Geometry checks follow.
+            detection = {**info, "inspection_allowed": True, "warning_reasons": reasons}
         effective["roi"] = result.bounds
-        detection = result.metadata
+        if detection is None:
+            detection = result.metadata
     roi = crop_roi(original, **effective["roi"])
     metadata = {"original_shape": list(original.shape), "roi_shape": list(roi.shape),
                 "roi": effective["roi"], "roi_detection": detection}
@@ -200,11 +216,15 @@ def preprocess_image(
     return result
 
 
-def preprocess_roi_array(image: np.ndarray, config: Mapping[str, Any]) -> RoiPreprocessResult:
-    """Run the existing ROI/CLAHE stage without tiling the whole ROI or writing files."""
+def preprocess_roi_array(
+    image: np.ndarray, config: Mapping[str, Any], *, allow_quality_warnings: bool = False,
+) -> RoiPreprocessResult:
+    """Prepare a native ROI; inspection may allow score-passed quality warnings."""
     config = validate_config(config)
     original = to_grayscale(image)
-    config, roi, enhanced, valid_mask, detection = _roi_stage(original, config)
+    config, roi, enhanced, valid_mask, detection = _roi_stage(
+        original, config, allow_quality_warnings=allow_quality_warnings,
+    )
     metadata = {"original_shape": list(original.shape), "roi_shape": list(roi.shape),
                 "roi": dict(config["roi"])}
     if detection is not None:
