@@ -53,14 +53,14 @@ function renderHistory(records) {
 
 function updateMode() {
   const certification = mode() === "certification";
-  $("mode-hint").textContent = certification ? "어두운 영역 3개를 검출하고 회전 보정해 각 크롭을 256×256 영상 전체로 확대해 추론합니다. 원본 크롭의 검정 픽셀은 점수 분모에서 제외합니다. 인증 판정 기준은 아직 적용되지 않습니다." : "기존 Gabor ROI 및 P1~P3 측정 절차를 사용합니다.";
-  $("measurement-info").innerHTML = certification ? '<div class="section-label">공인인증 측정 영역</div><div class="measurement-spec"><div><span>P1 · P2 · P3</span><b>각 256 × 256px</b></div><div><span>검출 순서</span><b>왼쪽 → 오른쪽</b></div><div><span>점수 분모</span><b>크롭의 검정 제외</b></div></div><div class="hint">어두운 연결 영역이 정확히 3개 검출되어야 합니다.</div>' : '<div class="section-label">측정 영역</div><div class="measurement-spec"><div><span>P1 · P2 · P3</span><b>256 × 512px</b></div><div><span>가로 중심 간격</span><b>547px</b></div><div><span>세로 위치</span><b>ROI 중앙</b></div></div><div class="hint">측정 결과와 원본·결과 영상은 자동 저장됩니다.</div>';
+  $("mode-hint").textContent = certification ? "흰 종이 내부의 사각형 ROI 3개를 찾아 원본 전체를 크롭하고 회전 보정 후 256×256px로 추론합니다. ROI 안의 밝은 픽셀도 유지하며, 원본의 순수 검정 픽셀만 점수에서 제외합니다. 인증 판정 기준은 아직 적용되지 않습니다." : "기존 Gabor ROI 및 P1~P3 측정 절차를 사용합니다.";
+  $("measurement-info").innerHTML = certification ? '<div class="section-label">공인인증 측정 영역</div><div class="measurement-spec"><div><span>P1 · P2 · P3</span><b>각 256 × 256px</b></div><div><span>검출 순서</span><b>왼쪽 → 오른쪽</b></div><div><span>점수 분모</span><b>사각형 ROI 전체 · 검정 제외</b></div></div><div class="hint">흰 종이 내부에서 크기·정렬·간격이 맞는 사각형 ROI 3개를 선택하고 그 안의 원본 픽셀을 보존합니다.</div>' : '<div class="section-label">측정 영역</div><div class="measurement-spec"><div><span>P1 · P2 · P3</span><b>256 × 512px</b></div><div><span>가로 중심 간격</span><b>547px</b></div><div><span>세로 위치</span><b>ROI 중앙</b></div></div><div class="hint">측정 결과와 원본·결과 영상은 자동 저장됩니다.</div>';
   ["왼쪽", "가운데", "오른쪽"].forEach((position, index) => {
     $(`p${index + 1}-label`).textContent = `P${index + 1} · ${position} · ${certification ? "256×256" : "256×512"}`;
   });
   $("calculation-title").textContent = `${certification ? "공인인증" : "일반"} · 함침율 계산`;
   $("calculation-basis").textContent = certification
-    ? "전체: 원래 크롭의 검정 제외 픽셀\n빨간색: 결함 픽셀"
+    ? "전체: 사각형 ROI 전체의 검정 제외 픽셀\n빨간색: 결함 픽셀"
     : "전체: 256 × 512 = 131,072\n빨간색: 결함 픽셀";
 }
 
@@ -128,7 +128,7 @@ function renderCalculations(payload) {
 function renderResult(payload) {
   const record = payload.record;
   const modeLabel = payload.mode === "certification" ? "공인인증 평가 모드" : "일반 모드";
-  const detail = payload.mode === "certification" ? "각 검출 영역을 회전 보정 후 256×256px로 확대 · 검정 픽셀은 분모에서 제외" : "각 256×512px · 중심 간격 547px";
+  const detail = payload.mode === "certification" ? "흰 종이 내부 ROI 3개 · 원본 사각형 전체 크롭 · 회전 보정 후 256×256px · 원본 검정 픽셀만 점수 제외" : "각 256×512px · 중심 간격 547px";
   const extras = [];
   if (payload.positive_classes?.length > 1) extras.push(`대상 픽셀: ${payload.positive_classes.join(" + ")}`);
   if (payload.valid_pixels) extras.push(`유효 픽셀 · ${payload.valid_pixels.map((n, i) => `P${i + 1} ${n.toLocaleString("ko-KR")}`).join(" · ")}`);

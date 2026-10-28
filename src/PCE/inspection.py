@@ -1,4 +1,4 @@
-"""Find three dark regions, straighten each one, and infer full 256px tiles."""
+"""Inspect three specimen windows contained by the white paper mask."""
 
 from dataclasses import dataclass
 
@@ -8,13 +8,12 @@ import numpy as np
 from src.model import predict_tiles
 from src.postprocess import impregnation_pct, threshold_mask
 from src.preprocess import apply_clahe
+from .detection import detect_regions, detect_windows, inset_region, oriented_region
 
 
 TILE_SIZE = 256
-THRESHOLD = 150
-MIN_AREA = 500
-MAX_AREA = 20000
-EDGE_MARGIN = 10
+# Native pixels per edge, applied before resampling to a 256x256 model tile.
+ROI_INSET_PX = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,50 +27,7 @@ class PceResult:
     defect_pixels: tuple[int, int, int]
     roi_detection: None = None
     roi: None = None
-
-
-def detect_regions(gray: np.ndarray) -> tuple[tuple[dict, np.ndarray], ...]:
-    """Apply the PCE threshold and connected-component filters in source pixels."""
-    if not isinstance(gray, np.ndarray) or gray.dtype != np.uint8 or gray.ndim != 2 or not gray.size:
-        raise ValueError("공인인증 입력은 비어 있지 않은 uint8 흑백 영상이어야 합니다.")
-    height, width = gray.shape
-    _, binary = cv2.threshold(gray, THRESHOLD, 255, cv2.THRESH_BINARY_INV)
-    kernel = np.ones((3, 3), np.uint8)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
-    regions = []
-    for index in range(1, count):
-        x, y, w, h, area = map(int, stats[index])
-        if not MIN_AREA <= area <= MAX_AREA or not 0.7 <= w / h <= 1.3:
-            continue
-        if x <= EDGE_MARGIN or y <= EDGE_MARGIN:
-            continue
-        if x + w >= width - EDGE_MARGIN or y + h >= height - EDGE_MARGIN:
-            continue
-        region = {"x": x, "y": y, "width": w, "height": h, "area": area}
-        regions.append((region, labels[y:y + h, x:x + w] == index))
-    regions.sort(key=lambda item: (item[0]["x"], item[0]["y"]))
-    if len(regions) != 3:
-        raise ValueError(f"공인인증 영역은 정확히 3개여야 합니다. 검출된 영역: {len(regions)}개")
-    return tuple(regions)
-
-
-def oriented_region(region: dict, component: np.ndarray) -> dict:
-    """Fit the smallest rotated rectangle around a connected component."""
-    y_pixels, x_pixels = np.nonzero(component)
-    points = np.column_stack((x_pixels + region["x"], y_pixels + region["y"])).astype(np.float32)
-    box = cv2.boxPoints(cv2.minAreaRect(points))
-    top, bottom = box[np.argsort(box[:, 1])[:2]], box[np.argsort(box[:, 1])[2:]]
-    top_left, top_right = top[np.argsort(top[:, 0])]
-    bottom_left, bottom_right = bottom[np.argsort(bottom[:, 0])]
-    quad = np.array((top_left, top_right, bottom_right, bottom_left), dtype=np.float32)
-    rectified_width = max(2, round(float(np.linalg.norm(top_right - top_left))) + 1)
-    rectified_height = max(2, round(float(np.linalg.norm(bottom_left - top_left))) + 1)
-    angle = float(np.degrees(np.arctan2(top_right[1] - top_left[1],
-                                        top_right[0] - top_left[0])))
-    return {**region, "quad": quad.tolist(), "rectified_width": rectified_width,
-            "rectified_height": rectified_height, "rotation_deg": angle}
+    pce_detection: dict | None = None
 
 
 def _rectification_matrix(region: dict) -> np.ndarray:
@@ -97,21 +53,24 @@ def _project_to_bbox(image: np.ndarray, region: dict) -> np.ndarray:
 
 
 def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config: dict) -> PceResult:
-    """Infer straightened crops and score their nonblack native pixels only."""
+    """Use detection only for geometry; measure the complete original RGB rectangle."""
     if (not isinstance(frame_rgb, np.ndarray) or frame_rgb.dtype != np.uint8
             or frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3 or not frame_rgb.size):
         raise ValueError("공인인증 입력은 uint8 RGB 영상이어야 합니다.")
     gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
-    detected = detect_regions(gray)
+    detected = detect_windows(gray)
     annotated = frame_rgb.copy()
     scores, crops, regions, valid_pixels, defect_pixels = [], [], [], [], []
     clahe = config.get("clahe", {})
     frame_valid = np.any(frame_rgb != 0, axis=2).astype(np.uint8)
-    for point, (bounds, component) in enumerate(detected, start=1):
-        region = oriented_region(bounds, component)
+    for point, (detected_region, _) in enumerate(detected.regions, start=1):
+        region = inset_region(detected_region, ROI_INSET_PX)
         x, y, w, h = (region[key] for key in ("x", "y", "width", "height"))
         source_rgb = rectify_region(frame_rgb, region)
-        source_valid = rectify_region(frame_valid, region, interpolation=cv2.INTER_NEAREST).astype(bool)
+        # Threshold/component masks locate the rectangle only. Bright specimen
+        # pixels on its boundary must remain in both the crop and its denominator.
+        source_valid = rectify_region(frame_valid, region,
+                                      interpolation=cv2.INTER_NEAREST).astype(bool)
         if not source_valid.any():
             raise ValueError(f"P{point} 크롭에 검정색을 제외한 유효 픽셀이 없습니다.")
         source_gray = cv2.cvtColor(source_rgb, cv2.COLOR_RGB2GRAY)
@@ -126,7 +85,6 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         if len(probabilities) != 1 or probabilities[0].shape != tile.shape:
             raise ValueError(f"P{point} 추론 결과는 256×256 한 장이어야 합니다.")
         model_exposure = threshold_mask(probabilities[0], threshold)
-        exposure = model_exposure & tile_valid
         native_size = (region["rectified_width"], region["rectified_height"])
         source_exposure = cv2.resize(model_exposure.astype(np.uint8), native_size,
                                      interpolation=cv2.INTER_NEAREST).astype(bool) & source_valid
@@ -134,12 +92,13 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         valid_pixels.append(int(np.count_nonzero(source_valid)))
         defect_pixels.append(int(np.count_nonzero(source_exposure)))
 
-        preview = cv2.resize(source_rgb, (TILE_SIZE, TILE_SIZE), interpolation=cv2.INTER_LINEAR)
-        preview[~tile_valid] = 0
         red = np.array([235, 64, 64], dtype=np.uint16)
-        preview[exposure] = (
-            (preview[exposure].astype(np.uint16) + red) // 2
+        # Display the same native-resolution predictions used in the score/history.
+        source_preview = source_rgb.copy()
+        source_preview[source_exposure] = (
+            (source_preview[source_exposure].astype(np.uint16) + red) // 2
         ).astype(np.uint8)
+        preview = cv2.resize(source_preview, (TILE_SIZE, TILE_SIZE), interpolation=cv2.INTER_LINEAR)
         crops.append(preview)
 
         destination = annotated[y:y + h, x:x + w]
@@ -151,11 +110,23 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         ).astype(np.uint8)
         regions.append(region)
 
+    # The real paper contour is distinct from the individual specimen windows.
+    outline = np.zeros(gray.shape, np.uint8)
+    cv2.polylines(outline, [np.asarray(detected.paper.metadata["contour"], np.int32)], True, 1, 2)
+    outline[:2] = outline[-2:] = 0
+    outline[:, :2] = outline[:, -2:] = 0
+    annotated[outline.astype(bool)] = (40, 220, 100)
     colors = ((255, 220, 0), (32, 215, 232), (234, 85, 223))
     for point, (region, color) in enumerate(zip(regions, colors, strict=True), start=1):
         x, y, w, h = (region[key] for key in ("x", "y", "width", "height"))
-        # Draw outside the crop so saved P1~P3 detail images retain their overlay only.
-        cv2.rectangle(annotated, (x - 3, y - 3), (x + w + 2, y + h + 2), color, 2)
+        # Offset the rotated outline outside its crop so history detail images stay clean.
+        quad = np.asarray(region["quad"], np.float32)
+        horizontal = (quad[1] - quad[0]) / np.linalg.norm(quad[1] - quad[0])
+        vertical = (quad[3] - quad[0]) / np.linalg.norm(quad[3] - quad[0])
+        offsets = np.array((-horizontal - vertical, horizontal - vertical,
+                            horizontal + vertical, -horizontal + vertical)) * 3
+        display = np.rint(quad + offsets).astype(np.int32)
+        cv2.polylines(annotated, [display], True, color, 2)
         label_y = y - 8 if y >= 28 else min(frame_rgb.shape[0] - 4, y + h + 18)
         cv2.putText(annotated, f"P{point}", (x, label_y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
@@ -163,4 +134,6 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         scores=tuple(scores), average=float(np.mean(scores)), annotated_frame=annotated,
         crops=tuple(crops), regions=tuple(regions), valid_pixels=tuple(valid_pixels),
         defect_pixels=tuple(defect_pixels),
+        pce_detection={**detected.metadata, "measurement_geometry": "original_rectangle",
+                       "valid_pixel_rule": "original_rgb_nonblack", "roi_inset_px": ROI_INSET_PX},
     )

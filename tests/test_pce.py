@@ -21,7 +21,10 @@ def sample_frame(points=3):
     return frame
 
 
+@patch("src.PCE.inspection.ROI_INSET_PX", 0)
 class PceTests(unittest.TestCase):
+    """Keep untrimmed scoring/black-pixel fixtures independent of the default inset."""
+
     def test_verification_report_compares_only_p2_with_answer(self):
         row = make_row("case21-1", "검증용 샘플", 80.0, (10.0, 82.0, 99.0), Path("image.png"))
         self.assertEqual(row["p2_prediction_pct"], 82.0)

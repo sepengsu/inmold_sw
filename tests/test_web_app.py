@@ -6,6 +6,7 @@ from base64 import b64decode
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -105,6 +106,35 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.client.get("/api/statistics").json()["summary"]["count"], 0)
+
+    def test_original_roi_rectangle_and_pixel_counts_survive_history(self):
+        from src.PCE.inspection import inspect_frame
+
+        frame = np.full((180, 320, 3), 240, np.uint8)
+        for x in (30, 130, 230):
+            frame[80:110, x:x + 30] = 100
+        frame[80:88, 30:38] = 240
+        with patch("src.PCE.inspection.predict_tiles",
+                   return_value=[np.ones((256, 256), np.float32)]):
+            inference = inspect_frame(frame, object(), 0.5, {})
+        self.workbench.engine.inspect_certification = lambda pixels: inference
+        _, encoded = cv2.imencode(".png", frame)
+        response = self.client.post("/api/inspect", data={"source": "file", "mode": "certification"},
+                                    files={"image": ("paper.png", encoded.tobytes(), "image/png")})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = response.json()
+        detail = self.client.get(f'/api/statistics/{saved["record"]["id"]}').json()
+        meta = detail["record"]["metadata"]
+        self.assertEqual(meta["pce_detection"]["selected_count"], 3)
+        self.assertEqual(meta["conditions"]["denominator"], "nonblack_rectified_crop_pixels")
+        self.assertEqual(meta["pce_detection"]["measurement_geometry"], "original_rectangle")
+        self.assertEqual(meta["pce_detection"]["roi_inset_px"], 3)
+        self.assertEqual(inference.valid_pixels, (576, 576, 576))
+        self.assertEqual(meta["regions"][0]["rectified_width"], 24)
+        self.assertEqual(meta["regions"][0]["roi_inset_px"], 3)
+        self.assertEqual(meta["conditions"]["valid_pixels"], list(inference.valid_pixels))
+        for index in (1, 2, 3):
+            self.assertEqual(detail["images"][f"p{index}"], saved["images"][f"p{index}"])
 
     def test_original_image_and_exact_pixel_counts_in_both_modes(self):
         for mode in ("normal", "certification"):

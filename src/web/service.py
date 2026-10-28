@@ -218,12 +218,17 @@ class Workbench:
                 "conditions": {"source": source, "inspection_mode": mode},
                 "frame_shape": list(frame.shape),
             }
+            pce_detection = getattr(inference, "pce_detection", None)
+            if pce_detection is not None:
+                metadata["pce_detection"] = pce_detection
+            denominator = "full_measurement_region_pixels"
+            if mode == "certification":
+                denominator = "nonblack_rectified_crop_pixels"
             valid = list(map(int, inference.valid_pixels))
             defects = list(map(int, inference.defect_pixels))
             metadata["conditions"].update(
                 valid_pixels=valid, defect_pixels=defects,
-                denominator=("nonblack_rectified_crop_pixels" if mode == "certification"
-                             else "full_measurement_region_pixels"),
+                denominator=denominator,
             )
             if source == "camera":
                 metadata["conditions"].update(
@@ -267,19 +272,34 @@ class Workbench:
 
     def detail(self, record_id: str) -> dict:
         record = self.history.get(record_id)
+        original = self.history.read_image(record.original_path)
         result = self.history.read_image(record.result_path)
         crops = {}
         certification = record.metadata.get("conditions", {}).get("inspection_mode") == "certification"
         for i, region in enumerate(record.metadata.get("regions", [])[:3], 1):
+            valid = None
             if certification and "quad" in region:
                 from src.PCE.inspection import rectify_region
                 crop = rectify_region(result, region)
+                # Preserve the meaning of older, contour-masked measurements.
+                # New measurements always show the complete original rectangle.
+                if (record.metadata.get("conditions", {}).get("denominator")
+                        == "nonblack_rectified_window_pixels" and "window_contours" in region):
+                    from src.PCE.detection import window_mask
+                    source_valid = window_mask(region, result.shape[:2]) & np.any(original != 0, axis=2)
+                    valid = rectify_region(source_valid.astype(np.uint8), region,
+                                           interpolation=cv2.INTER_NEAREST).astype(bool)
+                    crop[~valid] = 0
             else:
                 x, y, width, height = (region[key] for key in ("x", "y", "width", "height"))
                 crop = result[y:y + height, x:x + width].copy()
             if certification:
                 crop = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_LINEAR)
+                if valid is not None:
+                    tile_valid = cv2.resize(valid.astype(np.uint8), (256, 256),
+                                            interpolation=cv2.INTER_NEAREST).astype(bool)
+                    crop[~tile_valid] = 0
             crops[f"p{i}"] = image_bytes(crop)
         return {"record": record_data(record), "images": {
-            "original": image_bytes(self.history.read_image(record.original_path)),
+            "original": image_bytes(original),
             "result": image_bytes(result), **crops}}
