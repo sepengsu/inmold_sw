@@ -51,8 +51,34 @@
     </aside>
     <section class="workbench">
       <div class="ui-block workbench-content">
-        <div class="editor-tab">검사 영상 <span>P1~P3 측정 영역 표시</span></div>
-        <div class="image-box inspection-image"><span class="image-placeholder">측정 후 결과 영상이 표시됩니다.</span><img id="result-image" alt="마지막 검사 결과" hidden></div>
+        <div class="editor-tab">검사 영상 <span>함침율 = (1 − 결함픽셀수 / 전체픽셀수) × 100</span></div>
+        <div class="inspection-overview">
+          <figure class="original-frame">
+            <figcaption>원본 영상</figcaption>
+            <div class="image-box inspection-image"><span class="image-placeholder">측정 후 원본 영상이 표시됩니다.</span><img id="result-image" alt="마지막 검사 원본 영상" hidden></div>
+          </figure>
+          <section class="calculation-panel" aria-label="P1~P3 함침율 계산">
+            <div class="calculation-heading"><strong id="calculation-title">함침율 계산</strong></div>
+            <div class="point-calculations">
+              <article class="point-calculation p1" aria-labelledby="p1-calculation-label">
+                <div class="point-calculation-header"><h2 id="p1-calculation-label">P1 · 왼쪽</h2><strong id="p1-calculation-score">— %</strong></div>
+                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p1-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p1-total-pixels">—</dd></div></dl>
+                <p id="p1-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
+              </article>
+              <article class="point-calculation p2" aria-labelledby="p2-calculation-label">
+                <div class="point-calculation-header"><h2 id="p2-calculation-label">P2 · 가운데</h2><strong id="p2-calculation-score">— %</strong></div>
+                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p2-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p2-total-pixels">—</dd></div></dl>
+                <p id="p2-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
+              </article>
+              <article class="point-calculation p3" aria-labelledby="p3-calculation-label">
+                <div class="point-calculation-header"><h2 id="p3-calculation-label">P3 · 오른쪽</h2><strong id="p3-calculation-score">— %</strong></div>
+                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p3-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p3-total-pixels">—</dd></div></dl>
+                <p id="p3-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
+              </article>
+            </div>
+            <p id="calculation-basis" class="calculation-basis">전체: 256 × 512 = 131,072<br>빨간색: 결함 픽셀</p>
+          </section>
+        </div>
         <div class="region-images">
           <figure class="p1"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p1-image" alt="P1" hidden></div><figcaption id="p1-label">P1 · 왼쪽 · 256×512</figcaption></figure>
           <figure class="p2"><div class="image-box"><span class="image-placeholder">측정 전</span><img id="p2-image" alt="P2" hidden></div><figcaption id="p2-label">P2 · 가운데 · 256×512</figcaption></figure>

@@ -154,6 +154,23 @@ class CamTestController:
                     rgb = draw_roi_boundaries(rgb, self.roi_result.metadata)
             return rgb, camera_status, light_status, stats
 
+    def live_roi_preview(self) -> tuple:
+        """Apply the last extracted ROI mask to a fresh camera frame."""
+        with self._lock:
+            detected = self.roi_result
+            if detected is None or not detected.metadata["roi_detected"]:
+                return None, "먼저 현재 프레임에서 ROI를 추출하세요."
+            status = self.camera.get_status()
+            if (not status.connected or status.last_frame_at is None
+                    or monotonic() - status.last_frame_at > 2):
+                return None, "새 카메라 프레임 수신을 기다리는 중입니다."
+            frame = self.camera.get_latest_frame()
+            if frame is None:
+                return None, "새 카메라 프레임 수신을 기다리는 중입니다."
+            if detected.mask.shape != frame.shape[:2]:
+                return None, "영상 크기가 변경되었습니다. ROI를 다시 추출하세요."
+        return np.where(detected.mask[:, :, None], frame, 0), "최근 추출 ROI 적용 · 실시간 영상"
+
     def save_image(self, name: str = "") -> tuple:
         """Save Color and Mono PNGs from one fresh, unannotated RGB snapshot."""
         try:

@@ -218,10 +218,13 @@ class Workbench:
                 "conditions": {"source": source, "inspection_mode": mode},
                 "frame_shape": list(frame.shape),
             }
-            valid = getattr(inference, "valid_pixels", None)
-            if mode == "certification" and valid is not None:
-                metadata["conditions"].update(valid_pixels=list(map(int, valid)),
-                                               denominator="nonblack_rectified_crop_pixels")
+            valid = list(map(int, inference.valid_pixels))
+            defects = list(map(int, inference.defect_pixels))
+            metadata["conditions"].update(
+                valid_pixels=valid, defect_pixels=defects,
+                denominator=("nonblack_rectified_crop_pixels" if mode == "certification"
+                             else "full_measurement_region_pixels"),
+            )
             if source == "camera":
                 metadata["conditions"].update(
                     exposure_us=self.camera.settings.exposure_us,
@@ -237,12 +240,14 @@ class Workbench:
             except (OSError, ValueError, sqlite3.Error) as error:
                 saved_message = f"이력 저장 실패: {error}"
             result = {"record": record_data(record), "mode": mode, "saved_message": saved_message,
-                      "valid_pixels": valid, "positive_classes": self.engine.checkpoint.get("positive_classes", ()),
+                      "valid_pixels": valid, "defect_pixels": defects,
+                      "positive_classes": self.engine.checkpoint.get("positive_classes", ()),
                       "rotation_degrees": [r.get("rotation_deg") for r in getattr(inference, "regions", ())],
                       "roi_message": (roi_score_message(inference.roi_detection)
                                       if getattr(inference, "roi_detection", None) else None),
                       "history": [],
-                      "images": {"result": image_bytes(inference.annotated_frame),
+                      "images": {"original": image_bytes(frame),
+                                 "result": image_bytes(inference.annotated_frame),
                                  **{f"p{i}": image_bytes(crop) for i, crop in enumerate(inference.crops, 1)}}}
             try:
                 result["history"] = [record_data(r) for r in self.history.query(limit=5)]

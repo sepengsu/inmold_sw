@@ -17,3 +17,23 @@ button,select,input{font:inherit} button{cursor:pointer;border:1px solid var(--l
 @media(max-width:999px){.workbench-content{height:auto}.inspection-image{flex:none}}
 
 .image-placeholder{color:var(--muted);font-size:11px;text-align:center;padding:8px;line-height:1.5}
+
+.inspection-overview{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;flex:1;min-height:430px}
+.original-frame{display:flex;flex-direction:column;min-height:0}
+.original-frame>figcaption{color:#aaa;font-size:11px;padding:0 0 7px}
+.original-frame .inspection-image{flex:1;min-height:0;height:auto}
+.calculation-panel{display:flex;flex-direction:column;gap:6px;min-height:0;min-width:0;overflow:auto}
+.calculation-heading{display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.5}
+.calculation-heading strong{color:#ddd;font-size:12px}.calculation-heading span{color:var(--muted);overflow-wrap:anywhere}
+.point-calculations{display:grid;grid-template-rows:repeat(3,minmax(min-content,1fr));gap:8px;flex:1}
+.point-calculation{min-width:0;border:1px solid var(--line);border-left:3px solid;padding:7px;background:var(--panel)}
+.point-calculation.p1{border-left-color:#dcdc00}.point-calculation.p2{border-left-color:#20d7e8}.point-calculation.p3{border-left-color:#ea55df}
+.point-calculation-header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px}
+.point-calculation-header h2{margin:0;font-size:12px;font-weight:600}.point-calculation-header strong{color:#f0f0f0;font:600 17px Consolas,monospace}
+.pixel-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0}
+.pixel-counts dt{color:var(--muted);font-size:10px}.pixel-counts dd{margin:3px 0 0;color:#ccc;font:12px Consolas,monospace;overflow-wrap:anywhere}.pixel-counts>div:first-child dd{color:#f48771}
+.point-equation{margin:0;color:#9cdcfe;font:10px/1.6 Consolas,"Malgun Gothic",monospace;overflow-wrap:anywhere}
+.calculation-basis{margin:0;color:var(--muted);font-size:10px;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere}
+.region-images{min-height:120px}
+@media(max-width:999px){.inspection-overview{flex:none;height:500px}}
+@media(max-width:600px){.inspection-overview{grid-template-columns:minmax(0,1fr);height:auto;min-height:0}.original-frame{height:40dvh}.calculation-panel{overflow:visible}.point-calculations{grid-template-rows:repeat(3,auto)}}

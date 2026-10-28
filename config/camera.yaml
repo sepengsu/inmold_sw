@@ -1,4 +1,4 @@
 # 본 UI와 Cam_test가 공유하는 카메라 설정
 # 카메라 연결 시 자동 노출을 끄고 노출 시간(µs)과 촬영 형식을 적용합니다.
-exposure_us: 200000
+exposure_us: 150000
 pixel_format: Mono8

@@ -58,6 +58,10 @@ function updateMode() {
   ["왼쪽", "가운데", "오른쪽"].forEach((position, index) => {
     $(`p${index + 1}-label`).textContent = `P${index + 1} · ${position} · ${certification ? "256×256" : "256×512"}`;
   });
+  $("calculation-title").textContent = `${certification ? "공인인증" : "일반"} · 함침율 계산`;
+  $("calculation-basis").textContent = certification
+    ? "전체: 원래 크롭의 검정 제외 픽셀\n빨간색: 결함 픽셀"
+    : "전체: 256 × 512 = 131,072\n빨간색: 결함 픽셀";
 }
 
 function updateSource() {
@@ -96,6 +100,31 @@ async function previewRoi(parameter, value) {
   renderRoi(result);
 }
 
+function resetInspection() {
+  showImage("result-image", null);
+  [1, 2, 3].forEach(i => {
+    showImage(`p${i}-image`, null);
+    $(`p${i}-calculation-score`).textContent = "— %";
+    $(`p${i}-defect-pixels`).textContent = "—";
+    $(`p${i}-total-pixels`).textContent = "—";
+    $(`p${i}-equation`).textContent = "측정 후 계산식이 표시됩니다.";
+  });
+  $("result").innerHTML = '<div class="result-number">--.--<small>%</small></div><div class="hint">검사 입력을 선택하고 측정을 시작하세요.</div>';
+}
+
+function renderCalculations(payload) {
+  [1, 2, 3].forEach((point, index) => {
+    const defects = payload.defect_pixels[index];
+    const total = payload.valid_pixels[index];
+    const score = [payload.record.p1, payload.record.p2, payload.record.p3][index];
+    const count = value => Number(value).toLocaleString("ko-KR");
+    $(`p${point}-calculation-score`).textContent = `${fmt(score)}%`;
+    $(`p${point}-defect-pixels`).textContent = count(defects);
+    $(`p${point}-total-pixels`).textContent = count(total);
+    $(`p${point}-equation`).textContent = `(1 − ${count(defects)} / ${count(total)}) × 100 = ${fmt(score)}%`;
+  });
+}
+
 function renderResult(payload) {
   const record = payload.record;
   const modeLabel = payload.mode === "certification" ? "공인인증 평가 모드" : "일반 모드";
@@ -106,8 +135,9 @@ function renderResult(payload) {
   if (payload.rotation_degrees?.length === 3 && payload.rotation_degrees.every(n => n != null)) extras.push(`회전 보정 · ${payload.rotation_degrees.map((n, i) => `P${i + 1} ${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}°`).join(" · ")}`);
   if (payload.roi_message) extras.push(`자동 ROI · ${payload.roi_message} · P1~P3 측정 영역만 추론`);
   $("result").innerHTML = `<div class="mode-result">${modeLabel}</div><div class="result-number">${fmt(record.average)}<small>%</small></div><div class="result-caption">P1~P3 평균 함침율</div><div class="result-caption">${detail}</div><div class="result-caption inspection-duration">측정 소요 시간 ${fmt(record.elapsed_seconds, 3)}초</div><div class="result-caption">${escapeHtml(record.measured_at)}</div><div class="result-caption">${escapeHtml(payload.saved_message)}</div>${extras.map(item => `<div class="result-caption">${escapeHtml(item)}</div>`).join("")}<div class="point-scores"><div>P1~P3 함침율</div>${[record.p1, record.p2, record.p3].map((value, i) => `<div class="score-row"><span>P${i + 1}</span><b>${fmt(value)}%</b></div>`).join("")}</div>`;
-  showImage("result-image", payload.images.result);
+  showImage("result-image", payload.images.original);
   [1, 2, 3].forEach(i => showImage(`p${i}-image`, payload.images[`p${i}`]));
+  renderCalculations(payload);
   renderHistory(payload.history);
 }
 
@@ -115,6 +145,8 @@ async function inspect() {
   const button = $("inspect");
   button.disabled = true;
   button.textContent = "측정 중…";
+  document.querySelectorAll('input[name="mode"]').forEach(input => { input.disabled = true; });
+  resetInspection();
   try {
     const data = new FormData();
     data.append("source", $("source").value);
@@ -128,6 +160,7 @@ async function inspect() {
   } finally {
     button.disabled = false;
     button.textContent = "▶  측정 시작";
+    document.querySelectorAll('input[name="mode"]').forEach(input => { input.disabled = false; });
   }
 }
 
@@ -214,7 +247,7 @@ async function applyLighting(group = null) {
 
 document.addEventListener("DOMContentLoaded", () => {
   initialize();
-  document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener("change", updateMode));
+  document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener("change", () => { updateMode(); resetInspection(); }));
   $("source").addEventListener("change", updateSource);
   $("file-input").addEventListener("change", () => { const file = $("file-input").files[0]; showImage("file-preview", file ? URL.createObjectURL(file) : null); updateSource(); });
   $("inspect").addEventListener("click", inspect);

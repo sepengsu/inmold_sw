@@ -27,6 +27,8 @@ class InspectionResult:
     average: float
     annotated_frame: np.ndarray
     crops: tuple[np.ndarray, np.ndarray, np.ndarray]
+    defect_pixels: tuple[int, int, int]
+    valid_pixels: tuple[int, int, int]
     roi_detection: dict | None = None
     regions: tuple[dict, ...] = ()
     roi: dict | None = None
@@ -152,8 +154,12 @@ class InspectionEngine:
                                         self.checkpoint["threshold"]) for index in (0, 2, 4))
         scores = score_regions(exposures)
         annotated, crops = annotate_frame(frame_rgb, exposures, regions, self.last_roi_detection)
-        return InspectionResult(scores, float(np.mean(scores)), annotated, crops,
-                                self.last_roi_detection, regions, dict(roi))
+        return InspectionResult(
+            scores=scores, average=float(np.mean(scores)), annotated_frame=annotated, crops=crops,
+            defect_pixels=tuple(int(np.count_nonzero(mask)) for mask in exposures),
+            valid_pixels=tuple(int(mask.size) for mask in exposures),
+            roi_detection=self.last_roi_detection, regions=regions, roi=dict(roi),
+        )
 
     def inspect_certification(self, frame_rgb: np.ndarray):
         from src.PCE import inspect_frame

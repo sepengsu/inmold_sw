@@ -6,7 +6,15 @@ async function api(url, options={}) { const response=await fetch(url,{cache:"no-
 const post=(url,data={})=>api(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
 const lightValues=()=>[1,2,3,4].map(i=>Number($(`light-${i}`).value));
 const connection=()=>({port:$("light-port").value,baudrate:Number($("baudrate").value)});
-let previewBusy=false;
+let previewBusy=false, roiLive=false;
+
+function previewImages(data) {
+  if(data.image)$("cam-preview").src=data.image;else $("cam-preview").removeAttribute("src");
+  if("roi_image" in data){
+    if(data.roi_image)$("roi-preview").src=data.roi_image;else $("roi-preview").removeAttribute("src");
+  }
+  document.dispatchEvent(new CustomEvent("camera-preview-update",{detail:data}));
+}
 
 function renderReceipts(receipts, reset=false) {
   receipts?.forEach((note,index)=>{ if(reset || note != null) message(`light-receipt-${index+1}`,note || "최근 ACK: 미확인"); });
@@ -23,11 +31,18 @@ function renderLightValues(values) {
 }
 async function preview() {
   if(previewBusy)return;previewBusy=true;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),5000);
   try{
-    const data=await api(`/api/camera-test/preview?show_roi=${$("show-roi").checked}`);
-    if(data.image)$("cam-preview").src=data.image;else $("cam-preview").removeAttribute("src");
+    const includeRoi=roiLive || $("camera-viewer").dataset.source==="roi-preview";
+    const data=await api(`/api/camera-test/preview?show_roi=${$("show-roi").checked}&include_roi=${includeRoi}`,{signal:controller.signal});
+    previewImages(data);
     message("camera-status",data.camera_status);message("light-status",data.light_status);message("frame-info",data.frame_info);
-  }catch(error){message("frame-info",`프리뷰 오류: ${error.message}`)}finally{previewBusy=false}
+  }catch(error){
+    const info=error.name==="AbortError" ? "영상 응답 지연 · 연결을 다시 확인하고 있습니다." : `프리뷰 오류: ${error.message}`;
+    message("frame-info",info);
+    previewImages({image:null,roi_image:null,frame_info:info,roi_frame_info:info});
+  }finally{clearTimeout(timeout);previewBusy=false}
 }
 async function lightApply(group=null) {
   try{const data=await post("/api/camera-test/light/apply",{...connection(),values:lightValues(),group});message("light-message",data.message);message("light-status",data.light_status);renderReceipts(data.receipts)}
@@ -55,7 +70,7 @@ document.addEventListener("DOMContentLoaded",async()=>{
   $("capture").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/capture",{name:$("capture-name").value});message("capture-message",data.message);$("capture-files").innerHTML=data.files.map(file=>`<a href="${esc(file.url)}" download>${esc(file.name)}</a>`).join("")}catch(error){message("capture-message",error.message)}});
   $("apply-exposure").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/exposure",{exposure_us:Number($("exposure").value)});if(data.exposure_us!=null)$("exposure").value=data.exposure_us;message("camera-status",data.camera_status);message("exposure-message",data.message)}catch(error){message("exposure-message",error.message)}});
   $("load-exposure").addEventListener("click",async()=>{try{const data=await api("/api/camera-test/exposure");if(data.exposure_us!=null)$("exposure").value=data.exposure_us;message("exposure-message",data.message)}catch(error){message("exposure-message",error.message)}});
-  $("extract-roi").addEventListener("click",async()=>{const button=$("extract-roi");button.disabled=true;try{const data=await post("/api/camera-test/roi");message("roi-message",data.message);if(data.image)$("roi-preview").src=data.image;else $("roi-preview").removeAttribute("src")}catch(error){message("roi-message",error.message)}finally{button.disabled=false}});
+  $("extract-roi").addEventListener("click",async()=>{const button=$("extract-roi");button.disabled=true;try{const data=await post("/api/camera-test/roi");message("roi-message",data.message);roiLive=!!data.image;if(data.image)$("roi-preview").src=data.image;else $("roi-preview").removeAttribute("src")}catch(error){message("roi-message",error.message)}finally{button.disabled=false}});
   $("connect-camera").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/camera/connect",{serial_number:$("camera-serial").value,gain:Number($("gain").value),fps:Number($("fps").value)});message("camera-status",data.camera_status)}catch(error){message("camera-status",error.message)}});
   $("disconnect-camera").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/camera/disconnect");message("camera-status",data.camera_status);$("cam-preview").removeAttribute("src")}catch(error){message("camera-status",error.message)}});
   $("connect-light").addEventListener("click",async()=>{try{const data=await post("/api/camera-test/light/connect",connection());message("light-message",data.message);message("light-status",data.light_status);if(data.message.includes("연결 완료"))renderReceipts([null,null,null,null],true)}catch(error){message("light-message",error.message)}});

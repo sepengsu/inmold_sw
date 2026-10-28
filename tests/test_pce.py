@@ -125,6 +125,7 @@ class PceTests(unittest.TestCase):
         self.assertEqual(result.scores, (100 * (1 - np.count_nonzero(source_exposure) / 900),
                                          0.0, 100.0))
         self.assertEqual(result.valid_pixels, (900, 900, 900))
+        self.assertEqual(result.defect_pixels, (int(np.count_nonzero(source_exposure)), 900, 0))
         self.assertEqual([region["x"] for region in result.regions], [30, 130, 230])
         self.assertEqual(result.crops[0].shape, (256, 256, 3))
         self.assertTrue(np.all(result.crops[0][-1, -1] == 100))
@@ -174,6 +175,9 @@ class PceTests(unittest.TestCase):
         source_exposure = cv2.resize(tile_exposure, (30, 30), interpolation=cv2.INTER_NEAREST)
         expected = 100 * (1 - np.count_nonzero(source_exposure[source_valid]) / 875)
         self.assertAlmostEqual(result.scores[0], expected)
+        self.assertEqual(result.defect_pixels, (int(np.count_nonzero(source_exposure[source_valid])), 0, 0))
+        for score, defects, total in zip(result.scores, result.defect_pixels, result.valid_pixels):
+            self.assertEqual(score, (1 - defects / total) * 100)
         np.testing.assert_array_equal(result.crops[0][100, 100], [0, 0, 0])
         np.testing.assert_array_equal(result.annotated_frame[92, 42], [0, 0, 0])
 

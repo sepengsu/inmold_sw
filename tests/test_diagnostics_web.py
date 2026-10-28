@@ -2,15 +2,18 @@
 
 import tempfile
 import unittest
+from base64 import b64decode
 from pathlib import Path
 from time import monotonic
 from unittest.mock import Mock, patch
 
 import numpy as np
+import cv2
 from fastapi.testclient import TestClient
 
 from src.hardware.camera_control import CameraFrame, CameraStatus
 from src.hardware.led_control import ACK
+from src.preprocess.auto_roi import AutoRoiResult
 from src.web.app import create_app
 from src.web.service import Workbench
 
@@ -42,6 +45,7 @@ class DiagnosticWebTests(unittest.TestCase):
         for url in ("/camera-test", "/rs232-test"):
             self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.get("/api/camera-test/preview").json()["image"], None)
+        self.assertIsNone(self.client.get("/api/camera-test/preview?include_roi=true").json()["roi_image"])
         self.assertEqual(self.client.get("/api/rs232-test/bootstrap").json()["channels"], 6)
 
     def test_camera_capture_download_and_exposure(self):
@@ -74,6 +78,31 @@ class DiagnosticWebTests(unittest.TestCase):
         self.assertEqual(exposure["exposure_us"], 25000)
         self.assertEqual(self.client.get("/api/camera-test/exposure").json()["exposure_us"], 25000)
         self.assertEqual(self.client.post("/api/camera-test/capture", json={"name": "../bad"}).json()["files"], [])
+
+    def test_optional_live_roi_stream_updates_without_reextracting(self):
+        camera = Mock()
+        rgb = np.full((12, 14, 3), 80, np.uint8)
+        camera.get_status.side_effect = lambda: CameraStatus(
+            running=True, connected=True, description="Test camera", serial_number="24346077",
+            frames_received=10, last_frame_at=monotonic(), error=None,
+        )
+        camera.get_latest_camera_frame.return_value = CameraFrame(
+            display_rgb=rgb, raw_array=rgb[:, :, 0], width=14, height=12, pixel_format="Mono8",
+            block_id=10, camera_timestamp=100, captured_at_ns=100,
+        )
+        self.app.state.camera_test.camera = camera
+        self.app.state.camera_test.roi_result = AutoRoiResult(np.ones((12, 14), bool), {
+            "roi_detected": True, "quality_status": "PASS", "source_shape": [12, 14],
+            "top_y": [0] * 14, "bottom_y_exclusive": [12] * 14,
+        })
+        self.assertNotIn("roi_image", self.client.get("/api/camera-test/preview?show_roi=false").json())
+        for value in (80, 170):
+            camera.get_latest_frame.return_value = np.full_like(rgb, value)
+            data = self.client.get("/api/camera-test/preview?show_roi=false&include_roi=true").json()
+            decoded = cv2.imdecode(np.frombuffer(b64decode(data["roi_image"].split(",", 1)[1]), np.uint8),
+                                   cv2.IMREAD_COLOR)
+            np.testing.assert_array_equal(decoded, camera.get_latest_frame.return_value)
+            self.assertIn("실시간", data["roi_frame_info"])
 
     def test_rs232_apply_ack_history_off_and_disconnect(self):
         port = Mock(is_open=False)

@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from base64 import b64decode
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
@@ -40,9 +41,10 @@ class WebAppTests(unittest.TestCase):
         workbench.model_error = None
         frame = np.full((12, 15, 3), 80, dtype=np.uint8)
         inference = SimpleNamespace(
-            scores=(90.0, 80.0, 70.0), average=80.0, annotated_frame=frame,
-            crops=(frame[:4, :4], frame[:4, 4:8], frame[:4, 8:12]),
-            regions=tuple({"x": x, "y": 0, "width": 4, "height": 4} for x in (0, 4, 8)),
+            scores=(90.0, 80.0, 70.0), average=80.0, annotated_frame=np.full_like(frame, 120),
+            crops=(frame[:5, :4], frame[:5, 4:8], frame[:5, 8:12]),
+            regions=tuple({"x": x, "y": 0, "width": 4, "height": 5} for x in (0, 4, 8)),
+            defect_pixels=(2, 4, 6), valid_pixels=(20, 20, 20),
             roi=None, roi_detection=None,
         )
         workbench.engine = SimpleNamespace(
@@ -103,6 +105,29 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post("/api/inspect", data={"source": "file", "mode": "normal"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.client.get("/api/statistics").json()["summary"]["count"], 0)
+
+    def test_original_image_and_exact_pixel_counts_in_both_modes(self):
+        for mode in ("normal", "certification"):
+            with self.subTest(mode=mode):
+                response = self.client.post("/api/inspect", data={"source": "file", "mode": mode},
+                                            files={"image": ("frame.png", self.image, "image/png")})
+                self.assertEqual(response.status_code, 200, response.text)
+                result = response.json()
+                self.assertEqual(result["defect_pixels"], [2, 4, 6])
+                self.assertEqual(result["valid_pixels"], [20, 20, 20])
+                for score, defects, total in zip((90, 80, 70), result["defect_pixels"], result["valid_pixels"]):
+                    self.assertAlmostEqual(score, (1 - defects / total) * 100)
+                original = cv2.imdecode(np.frombuffer(b64decode(
+                    result["images"]["original"].split(",", 1)[1]), np.uint8), cv2.IMREAD_COLOR)
+                np.testing.assert_array_equal(original, cv2.imdecode(
+                    np.frombuffer(self.image, np.uint8), cv2.IMREAD_COLOR))
+                self.assertNotEqual(result["images"]["original"], result["images"]["result"])
+                detail = self.client.get(f'/api/statistics/{result["record"]["id"]}').json()
+                conditions = detail["record"]["metadata"]["conditions"]
+                self.assertEqual(conditions["defect_pixels"], [2, 4, 6])
+                self.assertEqual(conditions["valid_pixels"], [20, 20, 20])
+                self.assertEqual(conditions["denominator"], "nonblack_rectified_crop_pixels" if mode == "certification"
+                                 else "full_measurement_region_pixels")
 
 
 if __name__ == "__main__":

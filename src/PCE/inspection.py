@@ -25,6 +25,7 @@ class PceResult:
     crops: tuple[np.ndarray, np.ndarray, np.ndarray]
     regions: tuple[dict, dict, dict]
     valid_pixels: tuple[int, int, int]
+    defect_pixels: tuple[int, int, int]
     roi_detection: None = None
     roi: None = None
 
@@ -103,7 +104,7 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
     gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
     detected = detect_regions(gray)
     annotated = frame_rgb.copy()
-    scores, crops, regions, valid_pixels = [], [], [], []
+    scores, crops, regions, valid_pixels, defect_pixels = [], [], [], [], []
     clahe = config.get("clahe", {})
     frame_valid = np.any(frame_rgb != 0, axis=2).astype(np.uint8)
     for point, (bounds, component) in enumerate(detected, start=1):
@@ -131,6 +132,7 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
                                      interpolation=cv2.INTER_NEAREST).astype(bool) & source_valid
         scores.append(impregnation_pct(source_exposure, source_valid))
         valid_pixels.append(int(np.count_nonzero(source_valid)))
+        defect_pixels.append(int(np.count_nonzero(source_exposure)))
 
         preview = cv2.resize(source_rgb, (TILE_SIZE, TILE_SIZE), interpolation=cv2.INTER_LINEAR)
         preview[~tile_valid] = 0
@@ -157,5 +159,8 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         label_y = y - 8 if y >= 28 else min(frame_rgb.shape[0] - 4, y + h + 18)
         cv2.putText(annotated, f"P{point}", (x, label_y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
-    return PceResult(tuple(scores), float(np.mean(scores)), annotated,
-                     tuple(crops), tuple(regions), tuple(valid_pixels))
+    return PceResult(
+        scores=tuple(scores), average=float(np.mean(scores)), annotated_frame=annotated,
+        crops=tuple(crops), regions=tuple(regions), valid_pixels=tuple(valid_pixels),
+        defect_pixels=tuple(defect_pixels),
+    )

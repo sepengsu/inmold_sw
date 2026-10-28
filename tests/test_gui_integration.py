@@ -81,6 +81,10 @@ class GuiIntegrationTests(unittest.TestCase):
             self.assertTrue(np.all(tile == value))
         self.assertEqual(predict.call_args.kwargs["batch_size"], 2)
         self.assertEqual(result.scores, (100.0, 50.0, 50.0))
+        self.assertEqual(result.defect_pixels, (0, 65536, 65536))
+        self.assertEqual(result.valid_pixels, (131072, 131072, 131072))
+        for score, defects, total in zip(result.scores, result.defect_pixels, result.valid_pixels):
+            self.assertEqual(score, (1 - defects / total) * 100)
         self.assertAlmostEqual(result.average, 200 / 3)
         self.assertEqual(result.regions, regions)
         np.testing.assert_array_equal(frame, original)

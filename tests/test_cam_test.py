@@ -64,6 +64,38 @@ class CamTestTests(unittest.TestCase):
         self.assertIn("설정 오류", result)
         self.camera.stop.assert_not_called()
 
+    def test_live_roi_uses_fresh_camera_pixels_and_keeps_the_extracted_mask(self):
+        mask = np.array([[True, True, False, False]] * 3)
+        self.controller.roi_result = AutoRoiResult(mask, {"roi_detected": True})
+        with patch("src.diagnostics.camera.detect_auto_roi") as detector:
+            for value in (80, 170):
+                self.camera.get_latest_frame.return_value = np.full_like(self.rgb, value)
+                image, info = self.controller.live_roi_preview()
+                np.testing.assert_array_equal(image, np.where(mask[:, :, None], value, 0)
+                                              .repeat(3, axis=2))
+                self.assertIn("실시간", info)
+            detector.assert_not_called()
+        np.testing.assert_array_equal(self.controller.roi_result.mask, mask)
+        self.light.send.assert_not_called()
+
+    def test_live_roi_waits_for_a_mask_and_rejects_stale_or_different_size_frames(self):
+        image, info = self.controller.live_roi_preview()
+        self.assertIsNone(image)
+        self.assertIn("ROI를 추출", info)
+        self.controller.roi_result = AutoRoiResult(np.ones((3, 4), bool), {"roi_detected": True})
+        fresh = self.camera.get_status.return_value
+        for connected, last_frame_at in ((False, monotonic()), (True, monotonic() - 3), (True, None)):
+            self.camera.get_status.return_value = CameraStatus(
+                running=True, connected=connected, description="Test camera", serial_number="24346077",
+                frames_received=5, last_frame_at=last_frame_at, error=None,
+            )
+            self.assertIsNone(self.controller.live_roi_preview()[0])
+        self.camera.get_status.return_value = fresh
+        self.camera.get_latest_frame.return_value = np.full((4, 4, 3), 100, np.uint8)
+        image, info = self.controller.live_roi_preview()
+        self.assertIsNone(image)
+        self.assertIn("ROI를 다시 추출", info)
+
     def test_camera_connection_failure_retries_with_backoff(self):
         self.controller._camera_enabled = True
         self.controller._next_camera_retry = 0

@@ -112,11 +112,15 @@ def attach_diagnostic_routes(app: FastAPI, workbench: Workbench, static_dir: Pat
                 "ports": [port.device for port in list_ports.comports()]}
 
     @app.get("/api/camera-test/preview")
-    def camera_preview(show_roi: bool = True):
+    def camera_preview(show_roi: bool = True, include_roi: bool = False):
         camera_test._camera_enabled = workbench.camera_enabled
         image, camera_status, light_status, frame_info = camera_test.preview(show_roi)
-        return {"image": _image_url(image, ".jpg"), "camera_status": camera_status,
-                "light_status": light_status, "frame_info": frame_info}
+        result = {"image": _image_url(image, ".jpg"), "camera_status": camera_status,
+                  "light_status": light_status, "frame_info": frame_info}
+        if include_roi:
+            roi_image, roi_info = camera_test.live_roi_preview()
+            result.update(roi_image=_image_url(roi_image, ".jpg"), roi_frame_info=roi_info)
+        return result
 
     @app.post("/api/camera-test/capture")
     def camera_capture(request: CaptureRequest):
