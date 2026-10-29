@@ -32,22 +32,24 @@ function showImage(id, source) {
 function renderStatus(status) {
   state.cameraEnabled = status.camera_enabled;
   const transfer = status.transfer;
-  $("system-status").innerHTML = [
-    `CAMERA: ${escapeHtml(status.camera)}`,
-    `촬영 형식: ${status.pixel_format === "Mono8" ? "GrayScale · Mono8" : "RGB Color · BayerGR12"}`,
-    `노출 설정: ${escapeHtml(status.exposure_us)} µs`,
-    `MODEL: ${escapeHtml(status.model)}`,
-    status.inference_device ? `추론 장치: ${escapeHtml(status.inference_device_name || status.inference_device)} · ${escapeHtml(status.inference_device)}` : "",
-    `LIGHTING: ${escapeHtml(status.light_port)} · ${escapeHtml(status.light_baudrate)} bps · ${escapeHtml(status.light)}`,
+  const card = (name, level, label, details) => `<div class="system-status-card"><span class="status-light ${level}" aria-hidden="true"></span><div class="system-status-content"><div class="system-status-heading"><b>${name}</b><span class="status-chip ${level}">${label}</span></div>${details.filter(Boolean).map(detail => `<div class="system-status-detail">${detail}</div>`).join("")}</div></div>`;
+  const cameraLevel = status.camera_connected ? "ok" : status.camera_enabled ? "error" : "wait";
+  const cameraLabel = status.camera_connected ? "정상" : status.camera_enabled ? "오류" : "대기";
+  const modelLevel = status.model === "LOADED" ? "ok" : status.model === "로딩 대기" ? "wait" : "error";
+  const lightingLevel = status.light.includes("ACK 확인") ? "ok" : status.light.includes("연결 대기") || status.light.includes("파일 검사") || status.light.includes("제어 대기") ? "wait" : "error";
+  const tcpLevel = transfer?.enabled ? "ok" : transfer?.error ? "error" : "wait";
+  const detailRows = [
     status.roi ? `ROI: ${escapeHtml(status.roi)}` : "",
     status.threshold == null ? "" : `PIXEL: ${escapeHtml(status.threshold)}`,
-    status.positive_classes.length ? `대상 픽셀: ${escapeHtml(status.positive_classes.join(" + "))}` : "",
-    transfer ? `TCP 자동 전송: ${transfer.enabled ? "활성" : "비활성"} · ${escapeHtml(transfer.host)}:${escapeHtml(transfer.port)}` : "",
-    transfer ? `송신 IP: ${escapeHtml(transfer.local_host)}` : "",
-    transfer?.error ? `TCP 연결 오류: ${escapeHtml(transfer.error)}` : "",
-    transfer ? `TCP 처리: ${escapeHtml(transfer.last_result)}` : "",
-    transfer?.last_sent_measurement ? `최근 소켓 전송 · 측정 시각: ${escapeHtml(transfer.last_sent_measurement)}` : ""
-  ].filter(Boolean).map(line => `<div>${line}</div>`).join("");
+    status.positive_classes?.length ? `대상 픽셀: ${escapeHtml(status.positive_classes.join(" + "))}` : ""
+  ].filter(Boolean);
+  $("system-status").innerHTML = [
+    card("CAMERA", cameraLevel, cameraLabel, [escapeHtml(status.camera), `촬영 형식: ${status.pixel_format === "Mono8" ? "GrayScale · Mono8" : "RGB Color · BayerGR12"} · 노출 ${escapeHtml(status.exposure_us)} µs`]),
+    card("MODEL", modelLevel, modelLevel === "ok" ? "정상" : modelLevel === "wait" ? "대기" : "오류", [escapeHtml(status.model), status.inference_device ? `추론 장치: ${escapeHtml(status.inference_device_name || status.inference_device)} · ${escapeHtml(status.inference_device)}` : ""]),
+    card("LIGHTING", lightingLevel, lightingLevel === "ok" ? "정상" : lightingLevel === "wait" ? "대기" : "오류", [`${escapeHtml(status.light_port)} · ${escapeHtml(status.light_baudrate)} bps · ${escapeHtml(status.light)}`]),
+    transfer ? card("TCP", tcpLevel, tcpLevel === "ok" ? "연결됨" : tcpLevel === "wait" ? "대기" : "오류", [`수신 IP: ${escapeHtml(transfer.host)}:${escapeHtml(transfer.port)}`, `송신 IP: ${escapeHtml(transfer.local_host)}`, transfer.error ? `연결 오류: ${escapeHtml(transfer.error)}` : "", `처리: ${escapeHtml(transfer.last_result)}`, transfer.last_sent_measurement ? `최근 전송 측정 시각: ${escapeHtml(transfer.last_sent_measurement)}` : ""]) : "",
+    detailRows.length ? `<div class="system-status-extra"><b>세부 메시지</b>${detailRows.map(detail => `<div>${detail}</div>`).join("")}</div>` : ""
+  ].join("");
 }
 
 function renderHistory(records) {

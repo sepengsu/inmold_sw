@@ -14,6 +14,15 @@ button,select,input{font:inherit} button{cursor:pointer;border:1px solid var(--l
 @media(min-width:1000px){.workbench-content{height:calc(100dvh - 28px);min-height:0}}
 /* Grid items otherwise use the square image's intrinsic height as a minimum. */
 .region-images figure{min-height:0}
+
+/* Compact live health indicators in the system status panel. */
+.system-list{display:grid;gap:7px;font:11px/1.5 Consolas,monospace;color:#aaa;overflow-wrap:anywhere}
+.system-status-card{display:flex;gap:8px;padding:8px;border:1px solid #353535;background:#1d1d1d}
+.status-light{flex:0 0 auto;width:9px;height:9px;border-radius:50%;margin-top:4px;box-shadow:0 0 7px currentColor}
+.status-light.ok{color:#73c991;background:#73c991}.status-light.wait{color:#d7ba7d;background:#d7ba7d}.status-light.error{color:#f48771;background:#f48771}
+.system-status-content{min-width:0;flex:1}.system-status-heading{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:3px;color:#ddd}.system-status-heading b{font-size:10px;letter-spacing:.5px}
+.status-chip{padding:1px 5px;border:1px solid;font-size:9px}.status-chip.ok{color:#73c991;border-color:#3d7d56}.status-chip.wait{color:#d7ba7d;border-color:#735f2e}.status-chip.error{color:#f48771;border-color:#7b4239}
+.system-status-detail{color:#aaa;overflow-wrap:anywhere}.system-status-extra{padding:7px 8px;border-left:2px solid #555;color:var(--muted)}.system-status-extra b{display:block;margin-bottom:3px;color:#aaa;font-size:10px}
 @media(max-width:999px){.workbench-content{height:auto}.inspection-image{flex:none}}
 
 .image-placeholder{color:var(--muted);font-size:11px;text-align:center;padding:8px;line-height:1.5}
