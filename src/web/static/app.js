@@ -38,16 +38,22 @@ function renderStatus(status) {
   const modelLevel = status.model === "LOADED" ? "ok" : status.model === "로딩 대기" ? "wait" : "error";
   const lightingLevel = status.light.includes("ACK 확인") ? "ok" : status.light.includes("연결 대기") || status.light.includes("파일 검사") || status.light.includes("제어 대기") ? "wait" : "error";
   const tcpLevel = transfer?.enabled ? "ok" : transfer?.error ? "error" : "wait";
+  const cameraSummary = status.camera_connected ? "카메라 연결됨" : status.camera_enabled ? "카메라 연결에 실패했습니다" : "파일 검사 모드";
+  const modelSummary = status.model === "LOADED" ? "AI 모델 로드 완료" : escapeHtml(status.model);
+  const lightingSummary = status.light.includes("·") ? status.light.split("·").at(-1).trim() : status.light;
+  const tcpSummary = transfer?.enabled ? "자동 전송 사용 가능" : transfer?.error ? "수신 장치에 연결할 수 없습니다" : "연결 상태를 확인하는 중입니다";
   const detailRows = [
     status.roi ? `ROI: ${escapeHtml(status.roi)}` : "",
     status.threshold == null ? "" : `PIXEL: ${escapeHtml(status.threshold)}`,
-    status.positive_classes?.length ? `대상 픽셀: ${escapeHtml(status.positive_classes.join(" + "))}` : ""
+    status.positive_classes?.length ? `대상 픽셀: ${escapeHtml(status.positive_classes.join(" + "))}` : "",
+    !status.camera_connected && status.camera_enabled ? `카메라 오류: ${escapeHtml(status.camera)}` : "",
+    transfer?.error ? `TCP 오류: ${escapeHtml(transfer.error)}` : ""
   ].filter(Boolean);
   $("system-status").innerHTML = [
-    card("CAMERA", cameraLevel, cameraLabel, [escapeHtml(status.camera), `촬영 형식: ${status.pixel_format === "Mono8" ? "GrayScale · Mono8" : "RGB Color · BayerGR12"} · 노출 ${escapeHtml(status.exposure_us)} µs`]),
-    card("MODEL", modelLevel, modelLevel === "ok" ? "정상" : modelLevel === "wait" ? "대기" : "오류", [escapeHtml(status.model), status.inference_device ? `추론 장치: ${escapeHtml(status.inference_device_name || status.inference_device)} · ${escapeHtml(status.inference_device)}` : ""]),
-    card("LIGHTING", lightingLevel, lightingLevel === "ok" ? "정상" : lightingLevel === "wait" ? "대기" : "오류", [`${escapeHtml(status.light_port)} · ${escapeHtml(status.light_baudrate)} bps · ${escapeHtml(status.light)}`]),
-    transfer ? card("TCP", tcpLevel, tcpLevel === "ok" ? "연결됨" : tcpLevel === "wait" ? "대기" : "오류", [`수신 IP: ${escapeHtml(transfer.host)}:${escapeHtml(transfer.port)}`, `송신 IP: ${escapeHtml(transfer.local_host)}`, transfer.error ? `연결 오류: ${escapeHtml(transfer.error)}` : "", `처리: ${escapeHtml(transfer.last_result)}`, transfer.last_sent_measurement ? `최근 전송 측정 시각: ${escapeHtml(transfer.last_sent_measurement)}` : ""]) : "",
+    card("CAMERA", cameraLevel, cameraLabel, [cameraSummary, `${status.pixel_format === "Mono8" ? "Mono8" : "BayerGR12"} · 노출 ${escapeHtml(status.exposure_us)} µs`]),
+    card("MODEL", modelLevel, modelLevel === "ok" ? "정상" : modelLevel === "wait" ? "대기" : "오류", [modelSummary, status.inference_device ? `${escapeHtml(status.inference_device_name || status.inference_device)} (${escapeHtml(status.inference_device)})` : ""]),
+    card("LIGHTING", lightingLevel, lightingLevel === "ok" ? "정상" : lightingLevel === "wait" ? "대기" : "오류", [`${escapeHtml(status.light_port)} · ${escapeHtml(status.light_baudrate)} bps`, escapeHtml(lightingSummary)]),
+    transfer ? card("TCP", tcpLevel, tcpLevel === "ok" ? "연결됨" : tcpLevel === "wait" ? "대기" : "오류", [`수신: ${escapeHtml(transfer.host)}:${escapeHtml(transfer.port)}`, `송신: ${escapeHtml(transfer.local_host)}`, tcpSummary, `최근 처리: ${escapeHtml(transfer.last_result)}`, transfer.last_sent_measurement ? `측정 시각: ${escapeHtml(transfer.last_sent_measurement)}` : ""]) : "",
     detailRows.length ? `<div class="system-status-extra"><b>세부 메시지</b>${detailRows.map(detail => `<div>${detail}</div>`).join("")}</div>` : ""
   ].join("");
 }
