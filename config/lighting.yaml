@@ -6,7 +6,7 @@
 # right_upper_panel: 오른쪽 위 면조명 (CH5 + CH6)
 version: 1
 brightness_percent:
-  left_lower_panel: 0
+  left_lower_panel: 100
   left_upper_bar: 0
   right_upper_bar: 0
-  right_upper_panel: 0
+  right_upper_panel: 100

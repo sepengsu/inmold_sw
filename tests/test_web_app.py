@@ -51,6 +51,7 @@ class WebAppTests(unittest.TestCase):
             crops=(frame[:5, :4], frame[:5, 4:8], frame[:5, 8:12]),
             regions=tuple({"x": x, "y": 0, "width": 4, "height": 5} for x in (0, 4, 8)),
             defect_pixels=(2, 4, 6), valid_pixels=(20, 20, 20),
+            confidences=(96.5, 92.0, 88.25),
             roi=None, roi_detection=None,
         )
         workbench.engine = SimpleNamespace(
@@ -83,6 +84,12 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(preview["threshold"], 0.25)
         self.assertEqual(preview["level"], "low")
 
+    def test_ui_session_disabled_without_desktop_lifecycle(self):
+        self.assertEqual(self.client.get("/api/ui/session").status_code, 204)
+        for path in ("/", "/camera-test", "/rs232-test"):
+            with self.subTest(path=path):
+                self.assertIn('/static/ui-session.js', self.client.get(path).text)
+
     def test_status_reports_actual_inference_device(self):
         self.workbench.engine.model_info.update(device="cuda:0", device_name="NVIDIA GeForce RTX 5080")
         status = self.client.get("/api/status").json()
@@ -96,6 +103,8 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()
         self.assertEqual(result["record"]["average"], 80.0)
+        self.assertEqual(result["confidences"], [96.5, 92.0, 88.25])
+        self.assertEqual(result["record"]["metadata"]["confidences"], result["confidences"])
         self.assertTrue(result["images"]["p2"].startswith("data:image/png;base64,"))
         record_id = result["record"]["id"]
         self.assertTrue(record_id)

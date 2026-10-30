@@ -83,6 +83,9 @@ class GuiIntegrationTests(unittest.TestCase):
         self.assertEqual(result.scores, (100.0, 50.0, 50.0))
         self.assertEqual(result.defect_pixels, (0, 65536, 65536))
         self.assertEqual(result.valid_pixels, (131072, 131072, 131072))
+        self.assertAlmostEqual(result.confidences[0], (1 + (1 - 128 / 255)) * 50, places=4)
+        self.assertEqual(result.confidences[1], 100.)
+        self.assertAlmostEqual(result.confidences[2], result.confidences[0], places=4)
         for score, defects, total in zip(result.scores, result.defect_pixels, result.valid_pixels):
             self.assertEqual(score, (1 - defects / total) * 100)
         self.assertAlmostEqual(result.average, 200 / 3)

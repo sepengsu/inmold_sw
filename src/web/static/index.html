@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>Vision Workbench</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js?v=20261030-status-copy" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=20261031-pixel-area-spacing">
+  <script src="/static/ui-session.js" defer></script>
+  <script src="/static/app.js?v=20261031-pixel-area-pairs" defer></script>
   <script src="/static/roi-viewer.js" defer></script>
 </head>
 <body>
@@ -63,21 +64,31 @@
             <div class="point-calculations">
               <article class="point-calculation p1" aria-labelledby="p1-calculation-label">
                 <div class="point-calculation-header"><h2 id="p1-calculation-label">P1 · 왼쪽</h2><strong id="p1-calculation-score">— %</strong></div>
-                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p1-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p1-total-pixels">—</dd></div></dl>
+                <div class="pixel-counts">
+                  <dl class="pixel-count-pair"><div><dt>결함픽셀수</dt><dd id="p1-defect-pixels">—</dd></div><div><dt>결함면적 (mm²)</dt><dd id="p1-defect-area">—</dd></div></dl>
+                  <dl class="pixel-count-pair"><div><dt>전체픽셀</dt><dd id="p1-total-pixels">—</dd></div><div><dt>전체면적 (mm²)</dt><dd id="p1-total-area">—</dd></div></dl>
+                </div>
                 <p id="p1-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
               </article>
               <article class="point-calculation p2" aria-labelledby="p2-calculation-label">
                 <div class="point-calculation-header"><h2 id="p2-calculation-label">P2 · 가운데</h2><strong id="p2-calculation-score">— %</strong></div>
-                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p2-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p2-total-pixels">—</dd></div></dl>
+                <div class="pixel-counts">
+                  <dl class="pixel-count-pair"><div><dt>결함픽셀수</dt><dd id="p2-defect-pixels">—</dd></div><div><dt>결함면적 (mm²)</dt><dd id="p2-defect-area">—</dd></div></dl>
+                  <dl class="pixel-count-pair"><div><dt>전체픽셀</dt><dd id="p2-total-pixels">—</dd></div><div><dt>전체면적 (mm²)</dt><dd id="p2-total-area">—</dd></div></dl>
+                </div>
                 <p id="p2-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
               </article>
               <article class="point-calculation p3" aria-labelledby="p3-calculation-label">
                 <div class="point-calculation-header"><h2 id="p3-calculation-label">P3 · 오른쪽</h2><strong id="p3-calculation-score">— %</strong></div>
-                <dl class="pixel-counts"><div><dt>결함픽셀수</dt><dd id="p3-defect-pixels">—</dd></div><div><dt>전체픽셀수</dt><dd id="p3-total-pixels">—</dd></div></dl>
+                <div class="pixel-counts">
+                  <dl class="pixel-count-pair"><div><dt>결함픽셀수</dt><dd id="p3-defect-pixels">—</dd></div><div><dt>결함면적 (mm²)</dt><dd id="p3-defect-area">—</dd></div></dl>
+                  <dl class="pixel-count-pair"><div><dt>전체픽셀</dt><dd id="p3-total-pixels">—</dd></div><div><dt>전체면적 (mm²)</dt><dd id="p3-total-area">—</dd></div></dl>
+                </div>
                 <p id="p3-equation" class="point-equation">측정 후 계산식이 표시됩니다.</p>
               </article>
             </div>
             <p id="calculation-basis" class="calculation-basis">전체: 256 × 512 = 131,072<br>빨간색: 결함 픽셀</p>
+            <p id="area-conversion-basis" class="calculation-basis area-conversion-note" title="촬영 거리 33.8cm · 25mm 렌즈 · 원본 픽셀 기준"></p>
           </section>
         </div>
         <div class="region-images">

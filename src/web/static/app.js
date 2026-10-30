@@ -5,6 +5,8 @@ const state = {page: 1, pages: 1, lighting: [0, 0, 0, 0], previewUrl: null, prev
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const mode = () => document.querySelector('input[name="mode"]:checked').value;
 const fmt = (value, digits = 2) => Number(value).toFixed(digits);
+// Basler acA2040-25gc + 25 mm lens at 338 mm: (0.07436 mm/px)^2, approximate.
+const AREA_MM2_PER_PIXEL = 0.0055294096;
 
 async function request(url, options = {}) {
   const response = await fetch(url, {cache: "no-store", ...options});
@@ -80,6 +82,7 @@ function updateMode() {
   $("calculation-basis").textContent = certification
     ? "전체: 사각형 ROI 전체의 검정 제외 픽셀\n빨간색: 결함 픽셀"
     : "전체: 256 × 512 = 131,072\n빨간색: 결함 픽셀";
+  $("area-conversion-basis").textContent = `*1pixel = ${AREA_MM2_PER_PIXEL} mm²`;
 }
 
 function updateSource() {
@@ -124,7 +127,9 @@ function resetInspection() {
     showImage(`p${i}-image`, null);
     $(`p${i}-calculation-score`).textContent = "— %";
     $(`p${i}-defect-pixels`).textContent = "—";
+    $(`p${i}-defect-area`).textContent = "—";
     $(`p${i}-total-pixels`).textContent = "—";
+    $(`p${i}-total-area`).textContent = "—";
     $(`p${i}-equation`).textContent = "측정 후 계산식이 표시됩니다.";
   });
   $("result").innerHTML = '<div class="result-number">--.--<small>%</small></div><div class="hint">검사 입력을 선택하고 측정을 시작하세요.</div>';
@@ -138,7 +143,9 @@ function renderCalculations(payload) {
     const count = value => Number(value).toLocaleString("ko-KR");
     $(`p${point}-calculation-score`).textContent = `${fmt(score)}%`;
     $(`p${point}-defect-pixels`).textContent = count(defects);
+    $(`p${point}-defect-area`).textContent = fmt(defects * AREA_MM2_PER_PIXEL, 4);
     $(`p${point}-total-pixels`).textContent = count(total);
+    $(`p${point}-total-area`).textContent = fmt(total * AREA_MM2_PER_PIXEL, 4);
     $(`p${point}-equation`).textContent = `(1 − ${count(defects)} / ${count(total)}) × 100 = ${fmt(score)}%`;
   });
 }
@@ -153,6 +160,7 @@ function renderResult(payload) {
   if (payload.valid_pixels) extras.push(`유효 픽셀 · ${payload.valid_pixels.map((n, i) => `P${i + 1} ${n.toLocaleString("ko-KR")}`).join(" · ")}`);
   if (payload.rotation_degrees?.length === 3 && payload.rotation_degrees.every(n => n != null)) extras.push(`회전 보정 · ${payload.rotation_degrees.map((n, i) => `P${i + 1} ${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}°`).join(" · ")}`);
   if (payload.roi_message) extras.push(`자동 ROI · ${payload.roi_message} · P1~P3 측정 영역만 추론`);
+  if (payload.confidences?.length === 3) extras.push(`예측 신뢰도 · ${payload.confidences.map((value, i) => `P${i + 1} ${fmt(value)}%`).join(" · ")}`);
   $("result").innerHTML = `<div class="mode-result">${modeLabel}</div><div class="result-number">${fmt(record.average)}<small>%</small></div><div class="result-caption">P1~P3 평균 함침율</div><div class="result-caption">${detail}</div><div class="result-caption inspection-duration">측정 소요 시간 ${fmt(record.elapsed_seconds, 3)}초</div><div class="result-caption">${escapeHtml(record.measured_at)}</div><div class="result-caption">${escapeHtml(payload.saved_message)}</div>${extras.map(item => `<div class="result-caption">${escapeHtml(item)}</div>`).join("")}<div class="point-scores"><div>P1~P3 함침율</div>${[record.p1, record.p2, record.p3].map((value, i) => `<div class="score-row"><span>P${i + 1}</span><b>${fmt(value)}%</b></div>`).join("")}</div>`;
   showImage("result-image", payload.images.result);
   [1, 2, 3].forEach(i => showImage(`p${i}-image`, payload.images[`p${i}`]));

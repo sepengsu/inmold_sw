@@ -9,6 +9,7 @@ import numpy as np
 
 from src.model import load_checkpoint, predict_tiles
 from src.postprocess import impregnation_pct, threshold_mask
+from src.postprocess.confidence import prediction_confidence
 from src.preprocess import load_config, preprocess_roi_array
 from src.preprocess.auto_roi import RoiQualityError, draw_roi_boundaries
 from src.preprocess._validation import integer
@@ -32,6 +33,7 @@ class InspectionResult:
     roi_detection: dict | None = None
     regions: tuple[dict, ...] = ()
     roi: dict | None = None
+    confidences: tuple[float, float, float] | None = None
 
 
 def plan_measurement_regions(roi: dict, valid_mask: np.ndarray) -> tuple[dict, dict, dict]:
@@ -155,8 +157,9 @@ class InspectionEngine:
         probabilities = predict_tiles(self.model, patches, batch_size=self.batch_size)
         if len(probabilities) != 6 or any(p.shape != (TILE_SIZE, TILE_SIZE) for p in probabilities):
             raise ValueError("P1~P3 추론에는 256×256 예측 마스크 6장이 필요합니다.")
-        exposures = tuple(threshold_mask(np.concatenate(probabilities[index:index + 2], axis=0),
-                                        self.checkpoint["threshold"]) for index in (0, 2, 4))
+        point_probabilities = tuple(np.concatenate(probabilities[index:index + 2], axis=0)
+                                    for index in (0, 2, 4))
+        exposures = tuple(threshold_mask(p, self.checkpoint["threshold"]) for p in point_probabilities)
         scores = score_regions(exposures)
         annotated, crops = annotate_frame(frame_rgb, exposures, regions)
         return InspectionResult(
@@ -164,6 +167,8 @@ class InspectionEngine:
             defect_pixels=tuple(int(np.count_nonzero(mask)) for mask in exposures),
             valid_pixels=tuple(int(mask.size) for mask in exposures),
             roi_detection=self.last_roi_detection, regions=regions, roi=dict(roi),
+            confidences=tuple(prediction_confidence(p, self.checkpoint["threshold"])
+                              for p in point_probabilities),
         )
 
     def inspect_certification(self, frame_rgb: np.ndarray):

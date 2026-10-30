@@ -20,6 +20,7 @@ from src.hardware.led_control import (
 )
 from src.inspection_history import InspectionHistoryStore, InspectionRecord, LOCAL_TIMEZONE
 from src.preprocess import load_config
+from src.postprocess.confidence import CONFIDENCE_METHOD
 from src.result_transfer import ResultSender
 from src.roi.quality_display import roi_quality_message, roi_score_message
 from src.roi.quality_profiles import linked_roi_settings, roi_level, roi_settings_summary
@@ -121,6 +122,7 @@ class Workbench:
                 "inference_device": device, "inference_device_name": device_name,
                 "light": light_state, "light_port": COM_PORT, "light_baudrate": BAUD_RATE,
                 "roi": roi_state, "threshold": threshold, "positive_classes": classes,
+                "confidence_method": CONFIDENCE_METHOD,
                 "transfer": self.result_sender.status()}
 
     def bootstrap(self) -> dict:
@@ -229,6 +231,8 @@ class Workbench:
                 "model": getattr(self.engine, "model_info", self.engine.checkpoint),
                 "conditions": {"source": source, "inspection_mode": mode},
                 "frame_shape": list(frame.shape),
+                "confidences": getattr(inference, "confidences", None),
+                "confidence_method": CONFIDENCE_METHOD,
             }
             pce_detection = getattr(inference, "pce_detection", None)
             if pce_detection is not None:
@@ -265,6 +269,8 @@ class Workbench:
             result = {"record": record_data(record), "mode": mode, "saved_message": saved_message,
                       "transfer": transfer,
                       "valid_pixels": valid, "defect_pixels": defects,
+                      "confidences": metadata["confidences"],
+                      "confidence_method": CONFIDENCE_METHOD,
                       "positive_classes": self.engine.checkpoint.get("positive_classes", ()),
                       "rotation_degrees": [r.get("rotation_deg") for r in getattr(inference, "regions", ())],
                       "roi_message": roi_message,

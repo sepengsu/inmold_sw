@@ -39,10 +39,14 @@ button,select,input{font:inherit} button{cursor:pointer;border:1px solid var(--l
 .point-calculation.p1{border-left-color:#dcdc00}.point-calculation.p2{border-left-color:#20d7e8}.point-calculation.p3{border-left-color:#ea55df}
 .point-calculation-header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px}
 .point-calculation-header h2{margin:0;font-size:12px;font-weight:600}.point-calculation-header strong{color:#f0f0f0;font:600 17px Consolas,monospace}
-.pixel-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0}
-.pixel-counts dt{color:var(--muted);font-size:10px}.pixel-counts dd{margin:3px 0 0;color:#ccc;font:12px Consolas,monospace;overflow-wrap:anywhere}.pixel-counts>div:first-child dd{color:#f48771}
+.pixel-counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:8px 16px;margin:8px 0}
+.pixel-count-pair{display:grid;grid-template-columns:minmax(0,max-content) 12px minmax(0,max-content);justify-content:center;gap:8px;margin:0;min-width:0}
+.pixel-count-pair:before{content:"→";grid-column:2;grid-row:1;justify-self:center;color:var(--muted);font-size:10px}
+.pixel-count-pair>div{grid-row:1;min-width:0}.pixel-count-pair>div:first-child{grid-column:1}.pixel-count-pair>div:last-child{grid-column:3}
+.pixel-counts dt{color:var(--muted);font-size:10px}.pixel-counts dd{margin:3px 0 0;color:#ccc;font:12px Consolas,monospace;overflow-wrap:anywhere}.pixel-count-pair:first-child>div:first-child dd{color:#f48771}
 .point-equation{margin:0;color:#9cdcfe;font:10px/1.6 Consolas,"Malgun Gothic",monospace;overflow-wrap:anywhere}
 .calculation-basis{margin:0;color:var(--muted);font-size:10px;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere}
+.area-conversion-note{margin-top:auto;color:#c5c5c5;text-align:right}
 .region-images{min-height:120px}
 .roi-zoom-trigger{width:100%;padding:0;border-radius:0;cursor:zoom-in}.roi-zoom-trigger:hover{background:#111}.roi-zoom-trigger:focus-visible{outline:2px solid var(--blue);outline-offset:3px}.roi-zoom-trigger:disabled{opacity:1;cursor:default}.roi-viewer-open{overflow:hidden}
 .roi-viewer{width:calc(100vw - 32px);max-width:1600px;height:calc(100dvh - 32px);max-height:1200px;margin:auto;padding:16px;border:1px solid #555;background:var(--panel);color:var(--text);box-shadow:0 18px 54px #0008;overflow:hidden}.roi-viewer[open]{display:flex;flex-direction:column;gap:12px}.roi-viewer::backdrop{background:#000c}

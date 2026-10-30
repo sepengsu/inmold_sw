@@ -18,6 +18,7 @@ from src.roi.threshold_config import validate_roi_threshold
 
 from .service import Workbench
 from .diagnostics import attach_diagnostic_routes
+from .ui_lifecycle import UiSessionResponse, UiSessions
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -46,18 +47,26 @@ def _images_to_urls(payload: dict) -> dict:
     return payload
 
 
-def create_app(workbench: Workbench) -> FastAPI:
+def create_app(workbench: Workbench, *, ui_sessions: UiSessions | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         workbench.start()
         try:
             yield
         finally:
+            if ui_sessions is not None:
+                await ui_sessions.close()
             workbench.stop()
 
     app = FastAPI(title="Vision Workbench", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     attach_diagnostic_routes(app, workbench, STATIC_DIR)
+
+    @app.get("/api/ui/session")
+    async def ui_session():
+        if ui_sessions is None:
+            return Response(status_code=204)
+        return UiSessionResponse(ui_sessions)
 
     @app.get("/")
     def index():

@@ -42,7 +42,7 @@ recovery:
   search_margin: 100
 quality:
   # UI presets change the score and linked quality gates together.
-  min_score: 0.25
+  min_score: 0.0
   min_inlier_ratio: 0.35
   min_x_coverage: 0.4
   min_third_support: 0

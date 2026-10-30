@@ -7,6 +7,7 @@ import numpy as np
 
 from src.model import predict_tiles
 from src.postprocess import impregnation_pct, threshold_mask
+from src.postprocess.confidence import prediction_confidence
 from src.preprocess import apply_clahe
 from .detection import detect_regions, detect_windows, inset_region, oriented_region
 
@@ -28,6 +29,7 @@ class PceResult:
     roi_detection: dict | None = None
     roi: None = None
     pce_detection: dict | None = None
+    confidences: tuple[float, float, float] | None = None
 
 
 def _rectification_matrix(region: dict) -> np.ndarray:
@@ -61,6 +63,7 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
     detected = detect_windows(gray)
     annotated = frame_rgb.copy()
     scores, crops, regions, valid_pixels, defect_pixels = [], [], [], [], []
+    confidences = []
     clahe = config.get("clahe", {})
     frame_valid = np.any(frame_rgb != 0, axis=2).astype(np.uint8)
     for point, (detected_region, _) in enumerate(detected.regions, start=1):
@@ -88,6 +91,9 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         native_size = (region["rectified_width"], region["rectified_height"])
         source_exposure = cv2.resize(model_exposure.astype(np.uint8), native_size,
                                      interpolation=cv2.INTER_NEAREST).astype(bool) & source_valid
+        # Nearest-neighbour matches the native label mask used by the score.
+        source_probability = cv2.resize(probabilities[0], native_size, interpolation=cv2.INTER_NEAREST)
+        confidences.append(prediction_confidence(source_probability, threshold, source_valid))
         scores.append(impregnation_pct(source_exposure, source_valid))
         valid_pixels.append(int(np.count_nonzero(source_valid)))
         defect_pixels.append(int(np.count_nonzero(source_exposure)))
@@ -134,6 +140,7 @@ def inspect_frame(frame_rgb: np.ndarray, model: object, threshold: float, config
         scores=tuple(scores), average=float(np.mean(scores)), annotated_frame=annotated,
         crops=tuple(crops), regions=tuple(regions), valid_pixels=tuple(valid_pixels),
         defect_pixels=tuple(defect_pixels),
+        confidences=tuple(confidences),
         pce_detection={**detected.metadata, "measurement_geometry": "original_rectangle",
                        "valid_pixel_rule": "original_rgb_nonblack", "roi_inset_px": ROI_INSET_PX},
     )

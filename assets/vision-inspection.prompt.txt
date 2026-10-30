@@ -1,0 +1,13 @@
+Generator: built-in image_gen
+Transparent background: true
+
+Use case: stylized-concept
+Asset type: Windows desktop application icon for a machine vision inspection workstation.
+Primary request: one polished industrial machine-vision camera icon, immediately recognizable as automated visual quality inspection.
+Subject: a compact industrial cuboid camera body in brushed silver and dark graphite metal, a large circular optical lens with a clear subtle blue-green glass highlight, and a simple small bright green inspection check badge near the lower right. Slight three-quarter front view showing the lens prominently and a little depth of the camera body. A few clean viewfinder corner brackets near the lens can subtly suggest optical inspection.
+Style: professional premium desktop app icon, restrained stylized 3D product illustration, crisp silhouette, simple bold forms designed to remain readable at 32 and 48 pixels. Centered single object with even padding and entire silhouette visible. Studio lighting with controlled metallic highlights. No long cast shadow.
+Background: true transparency outside the camera and badge. No solid or gradient background tile.
+Constraints: exactly one icon, no text, no letters, no numbers, no logos, no watermark, no border, no scene or desk, avoid intricate tiny details, avoid photographic clutter.
+
+PNG: vision-inspection.png (original generated image)
+ICO: vision-inspection.ico (centered on a transparent square; 16, 24, 32, 48, 64, 128, 256 px)
