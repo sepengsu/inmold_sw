@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 import sqlite3
 from threading import RLock
-from time import monotonic
+from time import monotonic, sleep
 
 import cv2
 import numpy as np
@@ -282,6 +282,8 @@ class Workbench:
                 result["history"] = [record_data(r) for r in self.history.query(limit=5)]
             except (OSError, ValueError, sqlite3.Error):
                 result["history"] = [record_data(record)]
+            # Keep the completed result off the UI briefly for the requested inspection delay.
+            sleep(1.0)
             return result
 
     def statistics(self, start: str | None, end: str | None, source: str, page: int) -> dict:
