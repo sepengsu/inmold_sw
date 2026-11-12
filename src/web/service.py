@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 import sqlite3
 from threading import RLock
-from time import monotonic
+from time import monotonic, sleep
 
 import cv2
 import numpy as np
@@ -222,6 +222,13 @@ class Workbench:
                 raise ValueError(self.model_error or "모델이 로드되지 않았습니다.")
             inference = (self.engine.inspect_certification(frame) if mode == "certification"
                          else self.engine.inspect(frame))
+            
+            
+            # Include the requested UI delay in the displayed and persisted elapsed time.
+            sleep(1.0)
+            
+            
+            
             timestamp = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="milliseconds")
             elapsed = monotonic() - started
             metadata = {
