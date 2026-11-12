@@ -222,6 +222,13 @@ class Workbench:
                 raise ValueError(self.model_error or "모델이 로드되지 않았습니다.")
             inference = (self.engine.inspect_certification(frame) if mode == "certification"
                          else self.engine.inspect(frame))
+            
+            
+            # Include the requested UI delay in the displayed and persisted elapsed time.
+            sleep(1.0)
+            
+            
+            
             timestamp = datetime.now(LOCAL_TIMEZONE).isoformat(timespec="milliseconds")
             elapsed = monotonic() - started
             metadata = {
@@ -282,8 +289,6 @@ class Workbench:
                 result["history"] = [record_data(r) for r in self.history.query(limit=5)]
             except (OSError, ValueError, sqlite3.Error):
                 result["history"] = [record_data(record)]
-            # Keep the completed result off the UI briefly for the requested inspection delay.
-            sleep(1.0)
             return result
 
     def statistics(self, start: str | None, end: str | None, source: str, page: int) -> dict:
