@@ -44,10 +44,10 @@ class LightGroup:
 
 # Physical fixture assignment: keep the two panel-light outputs together.
 LIGHT_GROUPS = (
-    LightGroup("왼쪽 아래 면조명", (1, 2), "left_lower_panel"),
+    LightGroup("좌측 면조명", (1, 2), "left_lower_panel"),
     LightGroup("왼쪽 위 바 조명", (3,), "left_upper_bar"),
     LightGroup("오른쪽 위 바 조명", (4,), "right_upper_bar"),
-    LightGroup("오른쪽 위 면조명", (5, 6), "right_upper_panel"),
+    LightGroup("우측 면조명", (5, 6), "right_upper_panel"),
 )
 
 
